@@ -20,8 +20,6 @@ namespace bias
     const QString FlyTrackPlugin::LOG_FILE_POSTFIX = QString("flytrack");
     const int FlyTrackPlugin::LOGGING_PRECISION = 6;
 
-	const float FlyTrackPlugin::PI = 3.14159265358979323846;
-    
     const unsigned int FlyTrackPlugin::BG_HIST_NUM_BINS = 256;
     const unsigned int FlyTrackPlugin::BG_HIST_BIN_SIZE = 1;
     const double FlyTrackPlugin::MIN_VEL_MATCH_DOTPROD = 0.25;
@@ -30,12 +28,10 @@ namespace bias
     const unsigned int FlyTrackPlugin::fish_detect_intensity_threshold = 20;
     const unsigned int FlyTrackPlugin::fish_detect_pixel_threshold = 30;
     const unsigned int FlyTrackPlugin::fish_size_threshold = 30;
-    
 
     // ROIs near feeders
     const cv::Rect FlyTrackPlugin::ROI_left(90, 60, 300, 240); //(x,y,width,height)
     const cv::Rect FlyTrackPlugin::ROI_right(1440, 690, 300, 240); //(x,y,width,height)
-	const float FlyTrackPlugin::roi_angle = 30.0; // Angle of the ROI that detects fish in degrees
     
     
     // Public
@@ -191,12 +187,14 @@ namespace bias
         backgroundSubtraction();
         
         // Dummy trigger
-        //trigger = detectAllFishInsideROI(isFg_, cv::Rect(config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight));
-        trigger = !detectOneFishInsideUnionROI_rotated(isFg_, config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight, roi_angle);
-        //fishInLeftFeeder = detectOneFishInsideROI(isFg_, cv::Rect(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight));
-        //fishInRightFeeder = detectOneFishInsideROI(isFg_, cv::Rect(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight));
-        fishInLeftFeeder = detectOneFishInsideROI_rotated(isFg_, config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight, roi_angle);
-        fishInRightFeeder = detectOneFishInsideROI_rotated(isFg_, config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight, -roi_angle);
+        //trigger = !scanFishOutsideROI(isFg_, cv::Rect(config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight));
+        trigger = detectAllFishInsideROI(isFg_, cv::Rect(config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight));   
+        clock_t start = clock();
+        fishInLeftFeeder = detectOneFishInsideROI(isFg_, cv::Rect(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight));
+        clock_t end = clock();
+        double time_taken = (double)(end - start) / CLOCKS_PER_SEC;
+        fprintf(stdout, "Time taken: %f seconds\n", time_taken);
+        fishInRightFeeder = detectOneFishInsideROI(isFg_, cv::Rect(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight));
 
         // The two commented lines below test a hard-coded version of the feeder rois
         //fishInLeftFeeder = detectOneFishInsideROI(isFg_, cv::Rect(FlyTrackPlugin::ROI_left.x, FlyTrackPlugin::ROI_left.y, FlyTrackPlugin::ROI_left.width, FlyTrackPlugin::ROI_left.height));
@@ -219,13 +217,11 @@ namespace bias
         if (fishInRightFeeder || fishInLeftFeeder) {
             printf("Feeder status: %d\n", feederStatus);
         }
-
         
-        /*
         if (trigger && !trigger_pulsed) {
             trigger_pulsed = true;
             if (has_triggered) {
-                printf("All fish were found outside the trigger ROI. The trigger was not reset through MATLAB. 'detect' signal will not be sent over the server\n");
+                printf("All fish were found in the ROI. The trigger was not reset through MATLAB. 'detect' signal will not be sent over the server\n");
                 //printf("Debugging log:\n");
                 //printf("trigger_pulsed: %s, has_triggered: %s, trigger: %s \n", trigger_pulsed ? "true" : "false", has_triggered ? "true" : "false", trigger ? "true" : "false");
                 fflush(stdout);
@@ -244,7 +240,6 @@ namespace bias
             printf("All conditions were met. Trigger pulsed successfully!"); 
             fflush(stdout);
         }
-        */
 
         //Dummy trigger ends here
 
@@ -335,28 +330,9 @@ namespace bias
         }
         currentImageCopy = isFg_.clone();
         cv::cvtColor(currentImageCopy, currentImageCopy, cv::COLOR_GRAY2BGR);
-        //cv::rectangle(currentImageCopy, cv::Rect(config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight), cv::Scalar(0, 0, 255), 2);
-        //cv::rectangle(currentImageCopy, cv::Rect(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight), cv::Scalar(255, 0, 0), 2);
-        //cv::rectangle(currentImageCopy, cv::Rect(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight), cv::Scalar(255, 0, 0), 2);
-		rectangleUnion(currentImageCopy, cv::Point2f(config_.roiCenterX, config_.roiCenterY), cv::Size2f(config_.roiWidth, config_.roiHeight), roi_angle, cv::Scalar(0, 0, 255));
-        rotatedRectangle(currentImageCopy, cv::Point2f(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY), cv::Size2f(config_.roiLeftFeederWidth, config_.roiLeftFeederHeight), roi_angle, cv::Scalar(255, 0, 0));
-        rotatedRectangle(currentImageCopy, cv::Point2f(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY), cv::Size2f(config_.roiRightFeederWidth, config_.roiRightFeederHeight), -roi_angle, cv::Scalar(255, 0, 0));
-    }
-
-    void FlyTrackPlugin::rotatedRectangle(cv::Mat& currentImageCopy, cv::Point2f center, cv::Size2f size, double rotationDegree, cv::Scalar color) {
-		// Note: This is different from the cv::rectangle function and the cv::RotatedRect function
-		cv::Point2f vertices[4];
-		cv::RotatedRect rRect = cv::RotatedRect(center, size, rotationDegree);
-		rRect.points(vertices);
-        for (int i = 0; i < 4; i++)
-            cv::line(currentImageCopy, vertices[i], vertices[(i + 1) % 4], color, 2);
-    }
-
-    void FlyTrackPlugin::rectangleUnion(cv::Mat& currentImageCopy, cv::Point2f center, cv::Size2f size, double angle, cv::Scalar color) {
-        // double y_offset = std::abs(config_.roiRightFeederCenterY - config_.roiLeftFeederCenterY);
-        double y_offset = std::sin(angle * PI / 180.0) * size.height;
-        rotatedRectangle(currentImageCopy, center, size, angle, color);
-		rotatedRectangle(currentImageCopy, cv::Point2f(center.x, center.y + y_offset), size, -angle, color);
+        cv::rectangle(currentImageCopy, cv::Rect(config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight), cv::Scalar(0, 0, 255), 2);
+        cv::rectangle(currentImageCopy, cv::Rect(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight), cv::Scalar(255, 0, 0), 2);
+        cv::rectangle(currentImageCopy, cv::Rect(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight), cv::Scalar(255, 0, 0), 2);
     }
 
     void FlyTrackPlugin::getCurrentImageComputeBgMode(cv::Mat& currentImageCopy)
@@ -468,8 +444,7 @@ namespace bias
             }
         }
         else if (cmd == QString("get-fish-status")) {
-            //value = fishStatusToJson(has_triggered);
-			value = fishStatusToJson(trigger);
+            value = fishStatusToJson(has_triggered);
         }
         else if (cmd == QString("reset-fish-trigger")) {
             value = fishStatusToJson(has_triggered);
@@ -1205,32 +1180,6 @@ namespace bias
         return mask;
     }
 
-    cv::Mat FlyTrackPlugin::rotatedRectangleROI(double centerX, double centerY, double width, double height, double angle) {
-		cv::Mat mask = cv::Mat::zeros(bgMedianImage_.size(), CV_8U);
-		cv::RotatedRect rotatedRectangle(cv::Point2f(centerX, centerY), cv::Size2f(width, height), angle);
-		cv::Point2f vertices[4];
-		rotatedRectangle.points(vertices);
-		cv::Point points[4];
-        for (int i = 0; i < 4; i++) {
-            points[i] = vertices[i];
-        }
-        cv::fillConvexPoly(mask,
-            points,
-            4,
-			cv::Scalar(255)); 
-        return mask;
-    }
-
-    cv::Mat FlyTrackPlugin::rotatedUnionROI(double centerX, double centerY, double width, double height, double angle) {
-        cv::Mat unionMask = cv::Mat::zeros(bgMedianImage_.size(), CV_8U);
-        cv::Mat mask1 = rotatedRectangleROI(centerX, centerY, width, height, angle);
-        double y_offset = std::sin(angle * PI / 180.0) * height;
-        // double y_offset = std::abs(config_.roiLeftFeederCenterY - config_.roiRightFeederCenterY);
-        cv::Mat mask2 = rotatedRectangleROI(centerX, centerY + y_offset, width, height, -angle);
-        cv::bitwise_or(mask1, mask2, unionMask);
-        return unionMask;
-        //cv::polylines(image, &pts, &n, 1, true, cv::Scalar(0, 0, 255), 2); // Blue polygon for union
-    }
 
     // void setROI()
     // set the region of interest mask based on roiType_
@@ -1243,12 +1192,9 @@ namespace bias
         switch (config.roiType) {
         case RECTANGLE:
             printf("setting rectangle ROI: top left corner %f, %f, width %f, height %f\n", config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight);
-            //inROI_ = rectangleROI(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight); // Mask for central ROI (detects all fish)
-            //inROI_left_ = rectangleROI(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight); // Mask for ROI at the left feeder
-            //inROI_right_ = rectangleROI(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight); // Mask for ROI at the right feeder
-            inROI_ = rotatedUnionROI(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight, roi_angle); // Mask for central ROI (detects all fish)
-            inROI_left_ = rotatedRectangleROI(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight, roi_angle); // Mask for ROI at the left feeder
-            inROI_right_ = rotatedRectangleROI(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight, roi_angle); // Mask for ROI at the right 
+            inROI_ = rectangleROI(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight); // Mask for central ROI (detects all fish)
+            inROI_left_ = rectangleROI(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight); // Mask for ROI at the left feeder
+            inROI_right_ = rectangleROI(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight); // Mask for ROI at the right feeder
             break;
         }
     }
@@ -1326,12 +1272,9 @@ namespace bias
         switch (config.roiType) {
             case RECTANGLE:
                 //cv::circle(colorMatImage, cv::Point(config.roiCenterX, config.roiCenterY), config.roiRadius, cv::Scalar(0, 0, 255), 2);
-                //cv::rectangle(colorMatImage, cv::Rect(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight) , cv::Scalar(0, 0, 255), 2);
-                //cv::rectangle(colorMatImage, cv::Rect(config.roiLeftFeederCenterX, config.roiLeftFeederCenterY, config.roiLeftFeederWidth, config.roiLeftFeederHeight), cv::Scalar(0, 0, 255), 2);
-                //cv::rectangle(colorMatImage, cv::Rect(config.roiRightFeederCenterX, config.roiRightFeederCenterY, config.roiRightFeederWidth, config.roiRightFeederHeight), cv::Scalar(0, 0, 255), 2);
-                rectangleUnion(colorMatImage, cv::Point2f(config.roiCenterX, config.roiCenterY), cv::Size2f(config.roiWidth, config.roiHeight), roi_angle, cv::Scalar(0, 0, 255));
-                rotatedRectangle(colorMatImage, cv::Point2f(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY), cv::Size2f(config_.roiLeftFeederWidth, config_.roiLeftFeederHeight), roi_angle, cv::Scalar(255, 0, 0));
-                rotatedRectangle(colorMatImage, cv::Point2f(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY), cv::Size2f(config_.roiRightFeederWidth, config_.roiRightFeederHeight), -roi_angle, cv::Scalar(255, 0, 0));
+                cv::rectangle(colorMatImage, cv::Rect(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight) , cv::Scalar(0, 0, 255), 2);
+                cv::rectangle(colorMatImage, cv::Rect(config.roiLeftFeederCenterX, config.roiLeftFeederCenterY, config.roiLeftFeederWidth, config.roiLeftFeederHeight), cv::Scalar(0, 0, 255), 2);
+                cv::rectangle(colorMatImage, cv::Rect(config.roiRightFeederCenterX, config.roiRightFeederCenterY, config.roiRightFeederWidth, config.roiRightFeederHeight), cv::Scalar(0, 0, 255), 2);
 				break;
         }
 
@@ -1631,9 +1574,6 @@ namespace bias
         backgroundData.clear();
     }
 
-
-
-
     bool FlyTrackPlugin::scanFishOutsideROI(cv::Mat& isFg, cv::Rect ROI) {
         // Summary: Mask out the ROI using 0. Then calculate the pixels that are brighter than the threshold over the entire (masked) image.
         unsigned int count_pixels_outside_ROI = 0;
@@ -1694,56 +1634,10 @@ namespace bias
     // isFg: binary image, 255=background, 0=foreground
     // flyEllipse: destination for ellipse parameters
 
-    void FlyTrackPlugin::createRotatedRectMask(cv::Mat& mask, cv::RotatedRect rotatedRect) {
-        // Get the vertices of the rotated rectangle
-        cv::Point2f vertices[4];
-        rotatedRect.points(vertices);
 
-        // Convert the vertices to an array of points
-        std::vector<cv::Point> points;
-        for (int i = 0; i < 4; i++) {
-            points.push_back(vertices[i]);
-        }
-
-        // Fill the rotated rectangle on the mask
-        cv::fillConvexPoly(mask, points, cv::Scalar(255));
-    }
-
-    
-    //bool FlyTrackPlugin::detectOneFishInsideROI(cv::Mat& isFg, cv::Rect ROI) {
-    //    cv::Mat mask = cv::Mat::zeros(isFg.size(), CV_8U);
-    //    //cv::rectangle(mask, ROI, cv::Scalar(255), cv::FILLED);
-    //    cv::Mat mask = rotatedRectangleROI(double centerX, double centerY, double width, double height, 5);
-    //    cv::Mat masked_image;
-    //    isFg.copyTo(masked_image, mask);
-    //    cv::Mat binary_image;
-    //    cv::threshold(masked_image, binary_image, fish_detect_intensity_threshold, 255, cv::THRESH_BINARY);
-
-    //    unsigned int n_fish_inside_roi = 0;
-    //    std::vector<std::vector<cv::Point>> contours;
-    //    cv::findContours(masked_image, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-    //    for (int i = 0; i < contours.size(); i++) {
-    //        cv::Moments mu = cv::moments(contours[i], false);
-
-    //        //Area 
-    //        double area = cv::contourArea(contours[i]);
-
-    //        if (area > fish_detect_pixel_threshold) {
-    //            //Calculate centroid
-    //            // cv::Point2f centroid(mu.m10 / mu.m00, mu.m01 / mu.m00); Not needed right now
-    //            return true;
-    //        }
-    //    }
-    //    
-    //    return false;
-    //}
-    
-    
-
-    bool FlyTrackPlugin::detectOneFishInsideROI_rotated(cv::Mat& isFg, double centerX, double centerY, double width, double height, double angle) {
-        // This works with rotated rectangles
-        cv::Mat mask = rotatedRectangleROI(centerX, centerY, width, height, angle);
+    bool FlyTrackPlugin::detectOneFishInsideROI(cv::Mat& isFg, cv::Rect ROI) {
+        cv::Mat mask = cv::Mat::zeros(isFg.size(), CV_8U);
+        cv::rectangle(mask, ROI, cv::Scalar(255), cv::FILLED);
         cv::Mat masked_image;
         isFg.copyTo(masked_image, mask);
         cv::Mat binary_image;
@@ -1765,36 +1659,9 @@ namespace bias
                 return true;
             }
         }
-
+        
         return false;
     }
-
-    bool FlyTrackPlugin::detectOneFishInsideUnionROI_rotated(cv::Mat& isFg, double centerX, double centerY, double width, double height, double angle) {
-        cv::Mat unionMask = rotatedUnionROI(centerX, centerY, width, height, angle);
-        cv::Mat masked_image;        
-        isFg.copyTo(masked_image, unionMask);
-        cv::Mat binary_image;
-        cv::threshold(masked_image, binary_image, fish_detect_intensity_threshold, 255, cv::THRESH_BINARY);
-
-        unsigned int n_fish_inside_roi = 0;
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(masked_image, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-        for (int i = 0; i < contours.size(); i++) {
-            cv::Moments mu = cv::moments(contours[i], false);
-
-            //Area 
-            double area = cv::contourArea(contours[i]);
-
-            if (area > fish_detect_pixel_threshold) {
-                //Calculate centroid
-                // cv::Point2f centroid(mu.m10 / mu.m00, mu.m01 / mu.m00); Not needed right now
-                return true;
-            }
-        }
-        return false;
-    }
-
 
 
     bool FlyTrackPlugin::detectAllFishInsideROI(cv::Mat& isFg, cv::Rect ROI) {
