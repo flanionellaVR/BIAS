@@ -10,6 +10,9 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include "mat_to_qimage.hpp"
+#include <QThreadPool>
+#include "background_histogram_ufmf.hpp"
+#include "background_median_ufmf.hpp"
 
 namespace bias
 {
@@ -23,6 +26,12 @@ namespace bias
     const unsigned int FlyTrackPlugin::BG_HIST_NUM_BINS = 256;
     const unsigned int FlyTrackPlugin::BG_HIST_BIN_SIZE = 1;
     const double FlyTrackPlugin::MIN_VEL_MATCH_DOTPROD = 0.25;
+	const unsigned int FlyTrackPlugin::DYNAMIC_BG_MEDIAN_UPDATE_COUNT = 25;
+	const unsigned int FlyTrackPlugin::DYNAMIC_BG_MEDIAN_UPDATE_INTERVAL = 5;
+	const unsigned int FlyTrackPlugin::DYNAMIC_BG_NUM_THREADS = 2;
+
+	bool FlyTrackPlugin::computeBackgroundModelDynamically = true;
+	unsigned int FlyTrackPlugin::backgroundUpdateFramePeriod = 0;
 
     // ROI detection-related constants    
     const unsigned int FlyTrackPlugin::fish_detect_intensity_threshold = 20;
@@ -91,6 +100,76 @@ namespace bias
 
 
         setRequireTimer(false);
+
+        // Initialize dynamic background threading
+        dynamicBgModelingStarted_ = false;
+
+        bgThreadPoolPtr_ = new QThreadPool(this);
+        bgThreadPoolPtr_->setMaxThreadCount(FlyTrackPlugin::DYNAMIC_BG_NUM_THREADS);
+
+        bgImageQueuePtr_ = std::make_shared<LockableQueue<StampedImage>>();
+        bgNewDataQueuePtr_ = std::make_shared<LockableQueue<BackgroundData_ufmf>>();
+        bgOldDataQueuePtr_ = std::make_shared<LockableQueue<BackgroundData_ufmf>>();
+        bgMedianMatQueuePtr_ = std::make_shared<LockableQueue<cv::Mat>>();
+    }
+
+    FlyTrackPlugin::~FlyTrackPlugin()
+    {
+        stopDynamicBackgroundModeling();
+        if (bgThreadPoolPtr_) {
+            bgThreadPoolPtr_->waitForDone();
+        }
+    }
+
+    void FlyTrackPlugin::startDynamicBackgroundModeling()
+    {
+        if (dynamicBgModelingStarted_) return;
+        printf("Starting dynamic background modeling threads\n");
+
+        bgImageQueuePtr_->clear();
+        bgNewDataQueuePtr_->clear();
+        bgOldDataQueuePtr_->clear();
+        bgMedianMatQueuePtr_->clear();
+
+        bgHistogramPtr_ = new BackgroundHistogram_ufmf(
+            bgImageQueuePtr_, bgNewDataQueuePtr_, bgOldDataQueuePtr_, 0);
+        bgHistogramPtr_->setMedianUpdateCount(DYNAMIC_BG_MEDIAN_UPDATE_COUNT);
+        bgHistogramPtr_->setMedianUpdateInterval(DYNAMIC_BG_MEDIAN_UPDATE_INTERVAL);
+
+        bgMedianPtr_ = new BackgroundMedian_ufmf(
+            bgNewDataQueuePtr_, bgOldDataQueuePtr_, bgMedianMatQueuePtr_, 0);
+
+        bgThreadPoolPtr_->start(bgHistogramPtr_);
+        bgThreadPoolPtr_->start(bgMedianPtr_);
+        dynamicBgModelingStarted_ = true;
+    }
+
+    void FlyTrackPlugin::stopDynamicBackgroundModeling()
+    {
+        if (!dynamicBgModelingStarted_) return;
+        printf("Stopping dynamic background modeling threads\n");
+        fflush(stdout);
+
+        if (!bgMedianPtr_.isNull()) {
+            bgMedianPtr_->acquireLock();
+            bgMedianPtr_->stop();
+            bgMedianPtr_->releaseLock();
+            bgNewDataQueuePtr_->acquireLock();
+            bgNewDataQueuePtr_->signalNotEmpty();
+            bgNewDataQueuePtr_->releaseLock();
+        }
+
+        if (!bgHistogramPtr_.isNull()) {
+            bgHistogramPtr_->acquireLock();
+            bgHistogramPtr_->stop();
+            bgHistogramPtr_->releaseLock();
+            bgImageQueuePtr_->acquireLock();
+            bgImageQueuePtr_->signalNotEmpty();
+            bgImageQueuePtr_->releaseLock();
+        }
+
+        bgThreadPoolPtr_->waitForDone();
+        dynamicBgModelingStarted_ = false;
     }
 
     void FlyTrackPlugin::reset()
@@ -125,7 +204,8 @@ namespace bias
         setFromConfig(config);
     }
 
-    void FlyTrackPlugin::stop(){ 
+    void FlyTrackPlugin::stop(){
+        stopDynamicBackgroundModeling();
         BiasPlugin::stop();
         closeLogFile();
         if (config_.computeBgMode) {
@@ -164,7 +244,7 @@ namespace bias
         timeStamp_ = latestFrame.timeStamp;
         frameCount_ = latestFrame.frameCount;
 
-        if (!bgImageComputed_) {
+        if (!bgImageComputed_ && !computeBackgroundModelDynamically) {
             fprintf(stderr, "Background model not computed\n");
 			return;
 		}
@@ -175,6 +255,41 @@ namespace bias
             fprintf(stderr, "Empty frame\n");
 			return;
 		}
+
+        if (computeBackgroundModelDynamically) {
+            if (!dynamicBgModelingStarted_) {
+                startDynamicBackgroundModeling();
+            }
+
+            bgImageQueuePtr_->acquireLock();
+            if (bgImageQueuePtr_->empty()) {
+                bgImageQueuePtr_->push(latestFrame);
+                bgImageQueuePtr_->signalNotEmpty();
+            }
+            bgImageQueuePtr_->releaseLock();
+
+            bool haveNewMedian = false;
+            bgMedianMatQueuePtr_->acquireLock();
+            if (!bgMedianMatQueuePtr_->empty()) {
+                bgMedianImage_ = bgMedianMatQueuePtr_->front();
+                bgMedianMatQueuePtr_->pop();
+                haveNewMedian = true;
+            }
+            bgMedianMatQueuePtr_->releaseLock();
+
+            if (haveNewMedian) {
+                cv::add(bgMedianImage_, config_.backgroundThreshold, bgUpperBoundImage_);
+                cv::subtract(bgMedianImage_, config_.backgroundThreshold, bgLowerBoundImage_);
+                bgImageComputed_ = true;
+                printf("Dynamic background model updated at frame %lu\n", frameCount_);
+                fflush(stdout);
+            }
+
+            if (!bgImageComputed_) {
+                return;
+            }
+        }
+
         // mismatched sizes
         if ((bgMedianImage_.rows != currentImage_.rows) || (bgMedianImage_.cols != currentImage_.cols)
             || bgMedianImage_.type() != currentImage_.type())
@@ -193,7 +308,7 @@ namespace bias
         fishInLeftFeeder = detectOneFishInsideROI(isFg_, cv::Rect(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight));
         clock_t end = clock();
         double time_taken = (double)(end - start) / CLOCKS_PER_SEC;
-        fprintf(stdout, "Time taken: %f seconds\n", time_taken);
+        //fprintf(stdout, "Time taken: %f seconds\n", time_taken);
         fishInRightFeeder = detectOneFishInsideROI(isFg_, cv::Rect(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight));
 
         // The two commented lines below test a hard-coded version of the feeder rois

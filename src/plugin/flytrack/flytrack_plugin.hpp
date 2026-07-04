@@ -12,6 +12,9 @@
 #include <QTextStream>
 #include <QProgressBar> // progress bar obsolete, but function is still there
 #include "flytrack_config.hpp"
+#include <QPointer>
+
+class QThreadPool;
 
 namespace cv
 {
@@ -21,6 +24,9 @@ namespace cv
 namespace bias
 {
     class CameraWindow;
+    class BackgroundData_ufmf;
+    class BackgroundHistogram_ufmf;
+    class BackgroundMedian_ufmf;
 
     struct EllipseParams
     {
@@ -69,6 +75,11 @@ namespace bias
 	        static const unsigned int fish_detect_pixel_threshold; // Minimum pixel count that detects a fish outside the ROI
             static const unsigned int fish_size_threshold; // Minimum pixel count that identifies a blob as a fish
 			static const float roi_angle; // Angle of the ROI that detects fish in degrees
+            static bool computeBackgroundModelDynamically;
+            static unsigned int backgroundUpdateFramePeriod;
+            static const unsigned int DYNAMIC_BG_MEDIAN_UPDATE_COUNT;
+            static const unsigned int DYNAMIC_BG_MEDIAN_UPDATE_INTERVAL;
+            static const unsigned int DYNAMIC_BG_NUM_THREADS;
             bool trigger_pulsed; // Flag making sure trigger is pulsed only in the first frame after a fish leaves the ROI. Refresh after all fish return to ROI
             bool trigger;
             bool fishInLeftFeeder;
@@ -81,6 +92,7 @@ namespace bias
 	        //static const unsigned int ROI_height;
 
     	FlyTrackPlugin(QWidget *parent=0);
+		virtual ~FlyTrackPlugin();
             bool pluginsEnabled();
             void setPluginsEnabled(bool value);
             void getUiValues(FlyTrackConfig &config);
@@ -183,6 +195,19 @@ namespace bias
             cv::Mat bgLowerBoundImage_; // lower bound image for background
             cv::Mat bgUpperBoundImage_; // upper bound image for background
 			bool bgImageComputed_; // flag indicating if background image has been computed
+            void startDynamicBackgroundModeling();
+            void stopDynamicBackgroundModeling();
+
+            QPointer<QThreadPool> bgThreadPoolPtr_;
+            QPointer<BackgroundHistogram_ufmf> bgHistogramPtr_;
+            QPointer<BackgroundMedian_ufmf> bgMedianPtr_;
+
+            std::shared_ptr<LockableQueue<StampedImage>> bgImageQueuePtr_;
+            std::shared_ptr<LockableQueue<BackgroundData_ufmf>> bgNewDataQueuePtr_;
+            std::shared_ptr<LockableQueue<BackgroundData_ufmf>> bgOldDataQueuePtr_;
+            std::shared_ptr<LockableQueue<cv::Mat>> bgMedianMatQueuePtr_;
+
+            bool dynamicBgModelingStarted_;
 
             BackgroundData_ufmf backgroundData_; // background estimation data
             int lastFrameAdded_; // last frame added to background model
