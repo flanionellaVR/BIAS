@@ -38,6 +38,18 @@ namespace bias
         double theta;
     };
 
+    // Geometry for the triangle-based ROI layout:
+    //   triangle : Main ROI (equilateral triangle), engulfed by
+    //   outer[3] : Reset ROI rectangles, one flush on each triangle edge, extending outward
+    //   inner[3] : Feeder ROI rectangles, one positioned inside each outer rectangle
+    // Zone index 0-2 corresponds to triangle edge k (joining vertex k and vertex k+1).
+    struct RoiGeometry
+    {
+        std::vector<cv::Point2f> triangle;   // 3 vertices
+        std::vector<cv::RotatedRect> outer;  // 3 outer rectangles (Reset ROI)
+        std::vector<cv::RotatedRect> inner;  // 3 inner rectangles (Feeder ROI)
+    };
+
     // helper functions
     bool loadBackgroundModel(QString bgImageFilePath, cv::Mat& bgMedianImage);
     void computeBackgroundMedian(QString bgVideoFilePath, int nFramesBgEst, 
@@ -47,8 +59,8 @@ namespace bias
     double mod2pi(double angle);
     QString ellipseToJson(EllipseParams ell);
     QString fishStatusToJson(bool trigger);
-	QString resetStatusToJson(unsigned int resetStatus);
-    QString feederStatusToJson(unsigned int feederStatus);
+	QString resetStatusToJson(const std::vector<int>& zoneStatus);
+    QString feederStatusToJson(const std::vector<int>& zoneStatus);
 	QString fishCentroidsToJson(const std::vector<cv::Point2f>& centroids);
     bool checkFileExists(QString file);
 
@@ -120,6 +132,15 @@ namespace bias
             bool detectOneFishInsideROI_rotated(cv::Mat& isFg, double centerX, double centerY, double width, double height, double angle);
             bool detectOneFishInsideUnionROI_rotated(cv::Mat& isFg, double centerX, double centerY, double width, double height, double angle);
             std::vector<cv::Point2f>getFishCentroids(const cv::Mat& isFg);
+
+            // Triangle-based ROI geometry (see RoiGeometry). Single source of truth shared by
+            // detection, mask building, and preview drawing.
+            RoiGeometry computeRoiGeometry(const FlyTrackConfig& config);
+            cv::Mat triangleMask(const std::vector<cv::Point2f>& triangle);
+            cv::Mat rotatedRectMask(const cv::RotatedRect& rrect);
+            void drawTriangle(cv::Mat& img, const std::vector<cv::Point2f>& triangle, cv::Scalar color);
+            void drawRotatedRect(cv::Mat& img, const cv::RotatedRect& rrect, cv::Scalar color);
+            bool detectFishInMask(const cv::Mat& isFg, const cv::Mat& mask);
 
 
             QPointer<CameraWindow> getCameraWindow();
@@ -241,6 +262,11 @@ namespace bias
 
             // Fish centroids
 			std::vector<cv::Point2f> fishCentroids_; // vector of fish centroids detected in the current frame
+
+            // Triangle-based ROI geometry and per-zone fish occupancy (index 0-2 = triangle edge order)
+            RoiGeometry roiGeom_;
+            std::vector<int> outerZoneStatus_; // per outer (Reset) rectangle: 1 if fish inside, else 0
+            std::vector<int> innerZoneStatus_; // per inner (Feeder) rectangle: 1 if fish inside, else 0
 
             // for writing images
             std::vector<int> imwriteParams_;

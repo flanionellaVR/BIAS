@@ -36,14 +36,14 @@ namespace bias
         minVelocityMagnitude = DEFAULT_MIN_VELOCITY_MAGNITUDE;
         headTailWeightVelocity = DEFAULT_HEAD_TAIL_WEIGHT_VELOCITY;
         DEBUG = DEFAULT_DEBUG;
-        roiCenterX = 100; // Add this to defaults
-        roiCenterY = 100; // Add this to defaults
-        roiWidth = 100; // Add this to defaults
-        roiHeight = 100; // Add this to defaults
-        roiLeftFeederCenterX = 100; // Add this to defaults
-        roiLeftFeederCenterY = 100; // Add this to defaults
-        roiLeftFeederWidth = 100; // Add this to defaults
-        roiLeftFeederHeight = 100; // Add this to defaults
+        triangleCenterX = 100; // Add this to defaults
+        triangleCenterY = 100; // Add this to defaults
+        triangleSide = 100; // Add this to defaults
+        triangleAngle = 100; // Add this to defaults
+        innerOffsetAlong = 100; // Add this to defaults
+        innerOffsetOut = 100; // Add this to defaults
+        innerWidth = 100; // Add this to defaults
+        innerHeight = 100; // Add this to defaults
         roiRightFeederCenterX = 100; // Add this to defaults
         roiRightFeederCenterY = 100; // Add this to defaults
         roiRightFeederWidth = 100; // Add this to defaults
@@ -51,7 +51,7 @@ namespace bias
 		roiResetCenterX = 100; // Add this to defaults
 		roiResetCenterY = 100; // Add this to defaults
 		roiResetWidth = 100; // Add this to defaults
-		roiResetHeight = 100; // Add this to defaults
+		outerDepth = 100; // Add this to defaults
 
 
         trackFileName = QString(""); // empty string means it is not set
@@ -73,14 +73,14 @@ namespace bias
         config.minVelocityMagnitude = minVelocityMagnitude;
         config.headTailWeightVelocity = headTailWeightVelocity;
         config.DEBUG = DEBUG;
-        config.roiCenterX = roiCenterX;
-        config.roiCenterY = roiCenterY;
-        config.roiWidth = roiWidth;
-        config.roiHeight = roiHeight;
-		config.roiLeftFeederCenterX = roiLeftFeederCenterX;
-		config.roiLeftFeederCenterY = roiLeftFeederCenterY;
-		config.roiLeftFeederWidth = roiLeftFeederWidth;
-        config.roiLeftFeederHeight = roiLeftFeederHeight;
+        config.triangleCenterX = triangleCenterX;
+        config.triangleCenterY = triangleCenterY;
+        config.triangleSide = triangleSide;
+        config.triangleAngle = triangleAngle;
+		config.innerOffsetAlong = innerOffsetAlong;
+		config.innerOffsetOut = innerOffsetOut;
+		config.innerWidth = innerWidth;
+        config.innerHeight = innerHeight;
 		config.roiRightFeederCenterX = roiRightFeederCenterX;
 		config.roiRightFeederCenterY = roiRightFeederCenterY;
 		config.roiRightFeederWidth = roiRightFeederWidth;
@@ -88,7 +88,7 @@ namespace bias
 		config.roiResetCenterX = roiResetCenterX;
 		config.roiResetCenterY = roiResetCenterY;
 		config.roiResetWidth = roiResetWidth;
-		config.roiResetHeight = roiResetHeight;
+		config.outerDepth = outerDepth;
 
         config.trackFileName = trackFileName;
         config.tmpTrackFilePath = tmpTrackFilePath;
@@ -109,22 +109,22 @@ namespace bias
         QString roiTypeString;
         roiTypeToString(roiType, roiTypeString);
         configStr += QString("roiType: %1\n").arg(roiTypeString);
-        configStr += QString("roiCenterX: %1\n").arg(roiCenterX);
-        configStr += QString("roiCenterY: %1\n").arg(roiCenterY);
-        configStr += QString("roiWidth: %1\n").arg(roiWidth);
-        configStr += QString("roiHeight: %1\n").arg(roiHeight);
-        configStr += QString("roiLeftFeederCenterX: %1\n").arg(roiLeftFeederCenterX);
-        configStr += QString("roiLeftFeederCenterY: %1\n").arg(roiLeftFeederCenterY);
+        configStr += QString("triangleCenterX: %1\n").arg(triangleCenterX);
+        configStr += QString("triangleCenterY: %1\n").arg(triangleCenterY);
+        configStr += QString("triangleSide: %1\n").arg(triangleSide);
+        configStr += QString("triangleAngle: %1\n").arg(triangleAngle);
+        configStr += QString("innerOffsetAlong: %1\n").arg(innerOffsetAlong);
+        configStr += QString("innerOffsetOut: %1\n").arg(innerOffsetOut);
         configStr += QString("roiRightFeederCenterX: %1\n").arg(roiRightFeederCenterX);
         configStr += QString("roiRightFeederCenterY: %1\n").arg(roiRightFeederCenterY);
-        configStr += QString("roiLeftFeederWidth: %1\n").arg(roiLeftFeederWidth);
-        configStr += QString("roiLeftFeederHeight: %1\n").arg(roiLeftFeederHeight);
+        configStr += QString("innerWidth: %1\n").arg(innerWidth);
+        configStr += QString("innerHeight: %1\n").arg(innerHeight);
         configStr += QString("roiRightFeederWidth: %1\n").arg(roiRightFeederWidth);
         configStr += QString("roiRightFeederHeight: %1\n").arg(roiRightFeederHeight);
 		configStr += QString("roiResetCenterX: %1\n").arg(roiResetCenterX);
 		configStr += QString("roiResetCenterY: %1\n").arg(roiResetCenterY);
 		configStr += QString("roiResetWidth: %1\n").arg(roiResetWidth);
-		configStr += QString("roiResetHeight: %1\n").arg(roiResetHeight);
+		configStr += QString("outerDepth: %1\n").arg(outerDepth);
         configStr += QString("historyBufferLength: %1\n").arg(historyBufferLength);
         configStr += QString("maxTrackQueueLength: %1\n").arg(maxTrackQueueLength);
         configStr += QString("minVelocityMagnitude: %1\n").arg(minVelocityMagnitude);
@@ -231,29 +231,29 @@ namespace bias
             }
         }
 
-        if (configMap.contains("roiCenterX")) {
-            if (configMap["roiCenterX"].canConvert<double>()) {
-                roiCenterX = configMap["roiCenterX"].toDouble();
+        if (configMap.contains("triangleCenterX")) {
+            if (configMap["triangleCenterX"].canConvert<double>()) {
+                triangleCenterX = configMap["triangleCenterX"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiCenterX to double"));
+                rtnStatus.appendMessage(QString("unable to convert triangleCenterX to double"));
             }
         }
 
-        if (configMap.contains("roiCenterY")) {
-            if (configMap["roiCenterY"].canConvert<double>()) {
-                roiCenterY = configMap["roiCenterY"].toDouble();
+        if (configMap.contains("triangleCenterY")) {
+            if (configMap["triangleCenterY"].canConvert<double>()) {
+                triangleCenterY = configMap["triangleCenterY"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiCenterY to double"));
+                rtnStatus.appendMessage(QString("unable to convert triangleCenterY to double"));
             }
         }
 
         if (configMap.contains("roiRadius")) {
             if (configMap["roiRadius"].canConvert<double>()) {
-                roiWidth = configMap["roiRadius"].toDouble();
+                triangleSide = configMap["roiRadius"].toDouble();
             }
             else {
                 rtnStatus.success = false;
@@ -261,63 +261,63 @@ namespace bias
             }
         }
 
-        if (configMap.contains("roiWidth")) {
-            if (configMap["roiWidth"].canConvert<double>()) {
-                roiWidth = configMap["roiWidth"].toDouble();
+        if (configMap.contains("triangleSide")) {
+            if (configMap["triangleSide"].canConvert<double>()) {
+                triangleSide = configMap["triangleSide"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiWidth to double"));
+                rtnStatus.appendMessage(QString("unable to convert triangleSide to double"));
             }
         }
 
-        if (configMap.contains("roiHeight")) {
-            if (configMap["roiHeight"].canConvert<double>()) {
-                roiHeight = configMap["roiHeight"].toDouble();
+        if (configMap.contains("triangleAngle")) {
+            if (configMap["triangleAngle"].canConvert<double>()) {
+                triangleAngle = configMap["triangleAngle"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiHeight to double"));
+                rtnStatus.appendMessage(QString("unable to convert triangleAngle to double"));
             }
         }
 
-        if (configMap.contains("roiLeftFeederCenterX")) {
-            if (configMap["roiLeftFeederCenterX"].canConvert<double>()) {
-                roiLeftFeederCenterX = configMap["roiLeftFeederCenterX"].toDouble();
+        if (configMap.contains("innerOffsetAlong")) {
+            if (configMap["innerOffsetAlong"].canConvert<double>()) {
+                innerOffsetAlong = configMap["innerOffsetAlong"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiLeftFeederCenterX to double"));
+                rtnStatus.appendMessage(QString("unable to convert innerOffsetAlong to double"));
             }
         }
 
-        if (configMap.contains("roiLeftFeederCenterY")) {
-            if (configMap["roiLeftFeederCenterY"].canConvert<double>()) {
-                roiLeftFeederCenterY = configMap["roiLeftFeederCenterY"].toDouble();
+        if (configMap.contains("innerOffsetOut")) {
+            if (configMap["innerOffsetOut"].canConvert<double>()) {
+                innerOffsetOut = configMap["innerOffsetOut"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiLeftFeederCenterY to double"));
+                rtnStatus.appendMessage(QString("unable to convert innerOffsetOut to double"));
             }
         }
 
-        if (configMap.contains("roiLeftFeederWidth")) {
-            if (configMap["roiLeftFeederWidth"].canConvert<double>()) {
-                roiLeftFeederWidth = configMap["roiLeftFeederWidth"].toDouble();
+        if (configMap.contains("innerWidth")) {
+            if (configMap["innerWidth"].canConvert<double>()) {
+                innerWidth = configMap["innerWidth"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiLeftFeederWidth to double"));
+                rtnStatus.appendMessage(QString("unable to convert innerWidth to double"));
             }
         }
 
-        if (configMap.contains("roiLeftFeederHeight")) {
-            if (configMap["roiLeftFeederHeight"].canConvert<double>()) {
-                roiLeftFeederHeight = configMap["roiLeftFeederHeight"].toDouble();
+        if (configMap.contains("innerHeight")) {
+            if (configMap["innerHeight"].canConvert<double>()) {
+                innerHeight = configMap["innerHeight"].toDouble();
             }
             else {
                 rtnStatus.success = false;
-                rtnStatus.appendMessage(QString("unable to convert roiLeftFeederHeight to double"));
+                rtnStatus.appendMessage(QString("unable to convert innerHeight to double"));
             }
         }
 
@@ -387,13 +387,13 @@ namespace bias
 				rtnStatus.appendMessage(QString("unable to convert roiResetWidth to double"));
 			}
 		}
-		if (configMap.contains("roiResetHeight")) {
-			if (configMap["roiResetHeight"].canConvert<double>()) {
-				roiResetHeight = configMap["roiResetHeight"].toDouble();
+		if (configMap.contains("outerDepth")) {
+			if (configMap["outerDepth"].canConvert<double>()) {
+				outerDepth = configMap["outerDepth"].toDouble();
 			}
 			else {
 				rtnStatus.success = false;
-				rtnStatus.appendMessage(QString("unable to convert roiResetHeight to double"));
+				rtnStatus.appendMessage(QString("unable to convert outerDepth to double"));
 			}
 		}
 
@@ -535,14 +535,14 @@ namespace bias
         QString roiTypeString;
         roiTypeToString(roiType, roiTypeString);
         roiMap.insert("roiType", roiTypeString);
-        roiMap.insert("roiCenterX", roiCenterX);
-        roiMap.insert("roiCenterY", roiCenterY);
-        roiMap.insert("roiWidth", roiWidth);
-        roiMap.insert("roiHeight", roiHeight);
-        roiMap.insert("roiLeftFeederCenterX", roiLeftFeederCenterX);
-        roiMap.insert("roiLeftFeederCenterY", roiLeftFeederCenterY);
-        roiMap.insert("roiLeftFeederWidth", roiLeftFeederWidth);
-        roiMap.insert("roiLeftFeederHeight", roiLeftFeederHeight);
+        roiMap.insert("triangleCenterX", triangleCenterX);
+        roiMap.insert("triangleCenterY", triangleCenterY);
+        roiMap.insert("triangleSide", triangleSide);
+        roiMap.insert("triangleAngle", triangleAngle);
+        roiMap.insert("innerOffsetAlong", innerOffsetAlong);
+        roiMap.insert("innerOffsetOut", innerOffsetOut);
+        roiMap.insert("innerWidth", innerWidth);
+        roiMap.insert("innerHeight", innerHeight);
         roiMap.insert("roiRightFeederCenterX", roiRightFeederCenterX);
         roiMap.insert("roiRightFeederCenterY", roiRightFeederCenterY);
         roiMap.insert("roiRightFeederWidth", roiRightFeederWidth);
@@ -550,7 +550,7 @@ namespace bias
 		roiMap.insert("roiResetCenterX", roiResetCenterX);
 		roiMap.insert("roiResetCenterY", roiResetCenterY);
 		roiMap.insert("roiResetWidth", roiResetWidth);
-		roiMap.insert("roiResetHeight", roiResetHeight);
+		roiMap.insert("outerDepth", outerDepth);
 
 
         QVariantMap bgSubMap;
@@ -665,16 +665,16 @@ namespace bias
         return false;
     }
 
-	void FlyTrackConfig::setRoiParams(ROIType roiTypeNew, double roiCenterXNew, double roiCenterYNew, double roiWidthNew, double roiHeightNew, double roiLeftFeederCenterXNew, double roiLeftFeederCenterYNew, double roiLeftFeederWidthNew, double roiLeftFeederHeightNew, double roiRightFeederCenterXNew, double roiRightFeederCenterYNew, double roiRightFeederWidthNew, double roiRightFeederHeightNew, double roiResetCenterXNew, double roiResetCenterYNew, double roiResetWidthNew, double resetResetHeightNew) {
+	void FlyTrackConfig::setRoiParams(ROIType roiTypeNew, double triangleCenterXNew, double triangleCenterYNew, double triangleSideNew, double triangleAngleNew, double innerOffsetAlongNew, double innerOffsetOutNew, double innerWidthNew, double innerHeightNew, double roiRightFeederCenterXNew, double roiRightFeederCenterYNew, double roiRightFeederWidthNew, double roiRightFeederHeightNew, double roiResetCenterXNew, double roiResetCenterYNew, double roiResetWidthNew, double resetResetHeightNew) {
         roiType = roiTypeNew;
-        roiCenterX = roiCenterXNew;
-        roiCenterY = roiCenterYNew;
-        roiWidth = roiWidthNew;
-        roiHeight = roiHeightNew;
-		roiLeftFeederCenterX = roiLeftFeederCenterXNew;
-		roiLeftFeederCenterY = roiLeftFeederCenterYNew;
-		roiLeftFeederWidth = roiLeftFeederWidthNew;
-		roiLeftFeederHeight = roiLeftFeederHeightNew;
+        triangleCenterX = triangleCenterXNew;
+        triangleCenterY = triangleCenterYNew;
+        triangleSide = triangleSideNew;
+        triangleAngle = triangleAngleNew;
+		innerOffsetAlong = innerOffsetAlongNew;
+		innerOffsetOut = innerOffsetOutNew;
+		innerWidth = innerWidthNew;
+		innerHeight = innerHeightNew;
 		roiRightFeederCenterX = roiRightFeederCenterXNew;
 		roiRightFeederCenterY = roiRightFeederCenterYNew;
 		roiRightFeederWidth = roiRightFeederWidthNew;
@@ -682,9 +682,9 @@ namespace bias
 		roiResetCenterX = roiResetCenterXNew;
 		roiResetCenterY = roiResetCenterYNew;
 		roiResetWidth = roiResetWidthNew;
-		roiResetHeight = resetResetHeightNew;
+		outerDepth = resetResetHeightNew;
         
 
     }
 
-}
+}

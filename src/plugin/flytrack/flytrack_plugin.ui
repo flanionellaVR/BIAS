@@ -314,12 +314,12 @@
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_12">
             <item>
-             <widget class="QLabel" name="roiCenterXLabel">
+             <widget class="QLabel" name="triangleCenterXLabel">
               <property name="layoutDirection">
                <enum>Qt::LayoutDirection::RightToLeft</enum>
               </property>
               <property name="text">
-               <string>ROI Center X</string>
+               <string>Triangle Center X</string>
               </property>
               <property name="alignment">
                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
@@ -327,7 +327,7 @@
              </widget>
             </item>
             <item>
-             <widget class="QSpinBox" name="roiCenterXSpinBox">
+             <widget class="QSpinBox" name="triangleCenterXSpinBox">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
                 <horstretch>0</horstretch>
@@ -340,12 +340,12 @@
              </widget>
             </item>
             <item>
-             <widget class="QLabel" name="roiCenterYLabel">
+             <widget class="QLabel" name="triangleCenterYLabel">
               <property name="layoutDirection">
                <enum>Qt::LayoutDirection::RightToLeft</enum>
               </property>
               <property name="text">
-               <string>ROI Center Y</string>
+               <string>Triangle Center Y</string>
               </property>
               <property name="alignment">
                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
@@ -353,7 +353,7 @@
              </widget>
             </item>
             <item>
-             <widget class="QSpinBox" name="roiCenterYSpinBox">
+             <widget class="QSpinBox" name="triangleCenterYSpinBox">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
                 <horstretch>0</horstretch>
@@ -370,12 +370,12 @@
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_13">
             <item>
-             <widget class="QLabel" name="roiWidthLabel">
+             <widget class="QLabel" name="triangleSideLabel">
               <property name="layoutDirection">
                <enum>Qt::LayoutDirection::RightToLeft</enum>
               </property>
               <property name="text">
-               <string>ROI Width</string>
+               <string>Triangle Side</string>
               </property>
               <property name="alignment">
                <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
@@ -383,7 +383,7 @@
              </widget>
             </item>
             <item>
-             <widget class="QSpinBox" name="roiWidthSpinBox">
+             <widget class="QSpinBox" name="triangleSideSpinBox">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
                 <horstretch>0</horstretch>
@@ -396,14 +396,14 @@
              </widget>
             </item>
             <item alignment="Qt::AlignmentFlag::AlignRight">
-             <widget class="QLabel" name="roiHeightLabel">
+             <widget class="QLabel" name="triangleAngleLabel">
               <property name="text">
-               <string>ROI Height</string>
+               <string>Rotation (deg)</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QSpinBox" name="roiHeightSpinBox">
+             <widget class="QSpinBox" name="triangleAngleSpinBox">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
                 <horstretch>0</horstretch>
@@ -466,14 +466,14 @@
              </widget>
             </item>
             <item alignment="Qt::AlignmentFlag::AlignRight">
-             <widget class="QLabel" name="resetROIHeightLabel">
+             <widget class="QLabel" name="outerDepthLabel">
               <property name="text">
-               <string>ResetROI Height</string>
+               <string>Outer Rect Depth</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QSpinBox" name="roiResetHeightSpinBox">
+             <widget class="QSpinBox" name="outerDepthSpinBox">
               <property name="maximum">
                <number>999999999</number>
               </property>
@@ -491,35 +491,35 @@
           <item>
            <widget class="QLabel" name="label">
             <property name="text">
-             <string>Feeder ROI parameters</string>
+             <string>Inner rectangle parameters</string>
             </property>
            </widget>
           </item>
           <item>
            <layout class="QGridLayout" name="gridLayout">
             <item row="0" column="3">
-             <widget class="QSpinBox" name="roiLeftFeederCenterYSpinBox">
+             <widget class="QSpinBox" name="innerOffsetOutSpinBox">
               <property name="maximum">
                <number>999999999</number>
               </property>
              </widget>
             </item>
             <item row="0" column="2" alignment="Qt::AlignmentFlag::AlignRight">
-             <widget class="QLabel" name="roiLeftFeederCenterYLabel">
+             <widget class="QLabel" name="innerOffsetOutLabel">
               <property name="text">
-               <string>Left Center Y</string>
+               <string>Inner Offset (out)</string>
               </property>
              </widget>
             </item>
             <item row="0" column="0" alignment="Qt::AlignmentFlag::AlignRight">
-             <widget class="QLabel" name="roiLeftFeederCenterXLabel">
+             <widget class="QLabel" name="innerOffsetAlongLabel">
               <property name="text">
-               <string>Left Center X</string>
+               <string>Inner Offset (along)</string>
               </property>
              </widget>
             </item>
             <item row="0" column="1">
-             <widget class="QSpinBox" name="roiLeftFeederCenterXSpinBox">
+             <widget class="QSpinBox" name="innerOffsetAlongSpinBox">
               <property name="maximum">
                <number>999999999</number>
               </property>
@@ -530,30 +530,30 @@
           <item>
            <layout class="QGridLayout" name="gridLayout_2">
             <item row="0" column="2" alignment="Qt::AlignmentFlag::AlignRight">
-             <widget class="QLabel" name="roiLeftFeederHeightLabel">
+             <widget class="QLabel" name="innerHeightLabel">
               <property name="text">
-               <string>Left Height</string>
+               <string>Inner Height</string>
               </property>
              </widget>
             </item>
             <item row="0" column="1">
-             <widget class="QSpinBox" name="roiLeftFeederWidthSpinBox">
+             <widget class="QSpinBox" name="innerWidthSpinBox">
               <property name="maximum">
                <number>999999999</number>
               </property>
              </widget>
             </item>
             <item row="0" column="3">
-             <widget class="QSpinBox" name="roiLeftFeederHeightSpinBox">
+             <widget class="QSpinBox" name="innerHeightSpinBox">
               <property name="maximum">
                <number>999999999</number>
               </property>
              </widget>
             </item>
             <item row="0" column="0" alignment="Qt::AlignmentFlag::AlignRight">
-             <widget class="QLabel" name="roiLeftFeederWidthLabel">
+             <widget class="QLabel" name="innerWidthLabel">
               <property name="text">
-               <string>Left Width</string>
+               <string>Inner Width</string>
               </property>
              </widget>
             </item>
@@ -839,18 +839,18 @@
   <tabstop>flyVsBgModeComboBox</tabstop>
   <tabstop>backgroundThresholdLineEdit</tabstop>
   <tabstop>roiTypeComboBox</tabstop>
-  <tabstop>roiCenterXSpinBox</tabstop>
-  <tabstop>roiCenterYSpinBox</tabstop>
-  <tabstop>roiWidthSpinBox</tabstop>
-  <tabstop>roiHeightSpinBox</tabstop>
+  <tabstop>triangleCenterXSpinBox</tabstop>
+  <tabstop>triangleCenterYSpinBox</tabstop>
+  <tabstop>triangleSideSpinBox</tabstop>
+  <tabstop>triangleAngleSpinBox</tabstop>
   <tabstop>roiResetCenterXSpinBox</tabstop>
   <tabstop>roiResetCenterYSpinBox</tabstop>
   <tabstop>roiResetWidthSpinBox</tabstop>
-  <tabstop>roiResetHeightSpinBox</tabstop>
-  <tabstop>roiLeftFeederCenterXSpinBox</tabstop>
-  <tabstop>roiLeftFeederCenterYSpinBox</tabstop>
-  <tabstop>roiLeftFeederWidthSpinBox</tabstop>
-  <tabstop>roiLeftFeederHeightSpinBox</tabstop>
+  <tabstop>outerDepthSpinBox</tabstop>
+  <tabstop>innerOffsetAlongSpinBox</tabstop>
+  <tabstop>innerOffsetOutSpinBox</tabstop>
+  <tabstop>innerWidthSpinBox</tabstop>
+  <tabstop>innerHeightSpinBox</tabstop>
   <tabstop>roiRightFeederCenterXSpinBox</tabstop>
   <tabstop>roiRightFeederCenterYSpinBox</tabstop>
   <tabstop>roiRightFeederWidthSpinBox</tabstop>

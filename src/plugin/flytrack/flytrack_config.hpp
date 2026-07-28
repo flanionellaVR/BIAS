@@ -53,14 +53,14 @@ namespace bias
             int nFramesSkipBgEst; // number of frames to skip between frames added to background model
             FlyVsBgModeType flyVsBgMode; // whether the fly is darker than the background
             ROIType roiType; // type of ROI
-            double roiCenterX; // x-coordinate of ROI center
-            double roiCenterY; // y-coordinate of ROI center
-            double roiWidth; // radius of ROI
-            double roiHeight;
-			double roiLeftFeederCenterX; // x-coordinate of left feeder ROI center
-			double roiLeftFeederCenterY; // y-coordinate of left feeder ROI center
-			double roiLeftFeederWidth; // radius of left feeder ROI
-			double roiLeftFeederHeight; // radius of left feeder ROI
+            double triangleCenterX; // x-coordinate of ROI center
+            double triangleCenterY; // y-coordinate of ROI center
+            double triangleSide; // radius of ROI
+            double triangleAngle;
+			double innerOffsetAlong; // x-coordinate of left feeder ROI center
+			double innerOffsetOut; // y-coordinate of left feeder ROI center
+			double innerWidth; // radius of left feeder ROI
+			double innerHeight; // radius of left feeder ROI
 			double roiRightFeederCenterX; // x-coordinate of right feeder ROI center
 			double roiRightFeederCenterY; // y-coordinate of right feeder ROI center
 			double roiRightFeederWidth; // radius of right feeder ROI
@@ -68,7 +68,7 @@ namespace bias
 			double roiResetCenterX; // x-coordinate of reset ROI center
 			double roiResetCenterY; // y-coordinate of reset ROI center
 			double roiResetWidth; // radius of reset ROI
-			double roiResetHeight; // radius of reset ROI
+			double outerDepth; // radius of reset ROI
             int historyBufferLength; // number of frames to buffer velocity, orientation
             int maxTrackQueueLength; // number of tracks to buffer
             double minVelocityMagnitude; // minimum velocity magnitude in pixels/frame to consider fly moving
@@ -79,7 +79,7 @@ namespace bias
 
             FlyTrackConfig();
             FlyTrackConfig FlyTrackConfig::copy();
-			void setRoiParams(ROIType roiTypeNew, double roiCenterXNew, double roiCenterYNew, double roiWidthNew, double roiHeightNew, double roiLeftFeederCenterXNew, double roiLeftFeederCenterYNew, double roiLeftFeederWidthNew, double roiLeftFeederHeightNew, double roiRightFeederCenterXNew, double roiRightFeederCenterYNew, double roiRightFeederWidthNew, double roiRightFeederHeightNew, double roiResetCenterX, double roiResetCenterY, double roiResetWidth, double roiResetHeight);
+			void setRoiParams(ROIType roiTypeNew, double triangleCenterXNew, double triangleCenterYNew, double triangleSideNew, double triangleAngleNew, double innerOffsetAlongNew, double innerOffsetOutNew, double innerWidthNew, double innerHeightNew, double roiRightFeederCenterXNew, double roiRightFeederCenterYNew, double roiRightFeederWidthNew, double roiRightFeederHeightNew, double roiResetCenterX, double roiResetCenterY, double roiResetWidth, double outerDepth);
 
             RtnStatus setBgEstFromMap(QVariantMap configMap);
             RtnStatus setRoiFromMap(QVariantMap configMap);
@@ -99,4 +99,4 @@ namespace bias
     };
 }
 
-#endif
+#endif

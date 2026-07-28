@@ -83,8 +83,8 @@ namespace bias
 
         // parameters for region of interest
         //config_.roiType = CIRCLE;
-        //config_.roiCenterX = 468.6963;
-        //config_.roiCenterY = 480.2917;
+        //config_.triangleCenterX = 468.6963;
+        //config_.triangleCenterY = 480.2917;
         //config_.roiRadius = 428.3618;
 
         imwriteParams_.push_back(cv::IMWRITE_PNG_COMPRESSION);
@@ -349,29 +349,26 @@ namespace bias
         
         // Dummy trigger
         
-        trigger = !detectOneFishInsideUnionROI_rotated(isFg_, config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight, roi_angle);
-        fishInLeftFeeder = detectOneFishInsideROI_rotated(isFg_, config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight, roi_angle);
-        fishInRightFeeder = detectOneFishInsideROI_rotated(isFg_, config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight, -roi_angle);
-		fishInResetROI = detectOneFishInsideROI_rotated(isFg_, config_.roiResetCenterX, config_.roiResetCenterY, config_.roiResetWidth, config_.roiResetHeight, 0.0);
-        
-        if (fishInLeftFeeder && fishInRightFeeder) {
-            feederStatus = 3;
+        // ROI geometry: equilateral triangle (Main ROI) engulfed by 3 outer rectangles
+        // (Reset ROI), each holding 1 inner rectangle (Feeder ROI). See computeRoiGeometry().
+        // Zone index 0-2 follows triangle-edge order (edge k joins vertex k and vertex k+1).
+        roiGeom_ = computeRoiGeometry(config_);
+
+        // Main ROI is the triangle; trigger = 1 when a fish IS inside it (matches the reset/feeder convention).
+        trigger = detectFishInMask(isFg_, triangleMask(roiGeom_.triangle));
+
+        // Per-zone fish detection for the 3 outer (Reset) and 3 inner (Feeder) rectangles.
+        outerZoneStatus_ = std::vector<int>(3, 0);
+        innerZoneStatus_ = std::vector<int>(3, 0);
+        for (int i = 0; i < 3; i++) {
+            outerZoneStatus_[i] = detectFishInMask(isFg_, rotatedRectMask(roiGeom_.outer[i])) ? 1 : 0;
+            innerZoneStatus_[i] = detectFishInMask(isFg_, rotatedRectMask(roiGeom_.inner[i])) ? 1 : 0;
         }
-        else if (fishInLeftFeeder) {
-            feederStatus = 1;
-        }
-        else if (fishInRightFeeder) {
-            feederStatus = 2;
-        }
-        else {
-            feederStatus = 0;
-        }
-        if (fishInResetROI) {
-            resetStatus = 1;
-		}
-		else {
-			resetStatus = 0;
-		}
+
+        // Aggregate flags kept for backward compatibility (1 if any corresponding zone is occupied).
+        fishInResetROI = (outerZoneStatus_[0] || outerZoneStatus_[1] || outerZoneStatus_[2]);
+        resetStatus = fishInResetROI ? 1 : 0;
+        feederStatus = (innerZoneStatus_[0] || innerZoneStatus_[1] || innerZoneStatus_[2]) ? 1 : 0;
         //printf("Trigger status: %d\n", trigger);
         
         //if (fishInRightFeeder || fishInLeftFeeder) {
@@ -380,7 +377,9 @@ namespace bias
 
         
         /*
-        if (trigger && !trigger_pulsed) {
+        // NOTE: trigger == 1 now means a fish IS inside the triangle; these branches act when the
+        // triangle is EMPTY (all fish have left), so they test !trigger.
+        if (!trigger && !trigger_pulsed) {
             trigger_pulsed = true;
             if (has_triggered) {
                 printf("All fish were found outside the trigger ROI. The trigger was not reset through MATLAB. 'detect' signal will not be sent over the server\n");
@@ -390,11 +389,11 @@ namespace bias
             }
         }
         
-        if (!trigger) {
+        if (trigger) {
             trigger_pulsed = false;
         }
 
-        if (trigger && !has_triggered) {
+        if (!trigger && !has_triggered) {
             has_triggered = true;
             trigger_pulsed = true;
             printf("Reset command was received from the server through MATLAB. Sending 'detect' signal to the server\n");
@@ -406,7 +405,7 @@ namespace bias
 
         //Dummy trigger ends here
 
-        cv::rectangle(isFg_, cv::Rect(config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight) , cv::Scalar(0, 0, 255), 2);
+        // (legacy debug rectangle draw on isFg_ removed; ROIs are drawn on the preview copy instead)
 
 
 
@@ -493,13 +492,12 @@ namespace bias
         }
         currentImageCopy = isFg_.clone();
         cv::cvtColor(currentImageCopy, currentImageCopy, cv::COLOR_GRAY2BGR);
-        //cv::rectangle(currentImageCopy, cv::Rect(config_.roiCenterX, config_.roiCenterY, config_.roiWidth, config_.roiHeight), cv::Scalar(0, 0, 255), 2);
-        //cv::rectangle(currentImageCopy, cv::Rect(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight), cv::Scalar(255, 0, 0), 2);
-        //cv::rectangle(currentImageCopy, cv::Rect(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight), cv::Scalar(255, 0, 0), 2);
-		rectangleUnion(currentImageCopy, cv::Point2f(config_.roiCenterX, config_.roiCenterY), cv::Size2f(config_.roiWidth, config_.roiHeight), roi_angle, cv::Scalar(0, 0, 255));
-        rotatedRectangle(currentImageCopy, cv::Point2f(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY), cv::Size2f(config_.roiLeftFeederWidth, config_.roiLeftFeederHeight), roi_angle, cv::Scalar(255, 0, 0));
-        rotatedRectangle(currentImageCopy, cv::Point2f(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY), cv::Size2f(config_.roiRightFeederWidth, config_.roiRightFeederHeight), -roi_angle, cv::Scalar(255, 0, 0));
-		rotatedRectangle(currentImageCopy, cv::Point2f(config_.roiResetCenterX, config_.roiResetCenterY), cv::Size2f(config_.roiResetWidth, config_.roiResetHeight), 0.0, cv::Scalar(100, 255, 0));
+        // Draw the triangle-based ROI layout: triangle (Main, red), 3 outer rects (Reset, green),
+        // 3 inner rects (Feeder, blue). Colors are BGR.
+        RoiGeometry geom = computeRoiGeometry(config_);
+        drawTriangle(currentImageCopy, geom.triangle, cv::Scalar(0, 0, 255));
+        for (int i = 0; i < 3; i++) drawRotatedRect(currentImageCopy, geom.outer[i], cv::Scalar(100, 255, 0));
+        for (int i = 0; i < 3; i++) drawRotatedRect(currentImageCopy, geom.inner[i], cv::Scalar(255, 0, 0));
     }
 
     void FlyTrackPlugin::rotatedRectangle(cv::Mat& currentImageCopy, cv::Point2f center, cv::Size2f size, double rotationDegree, cv::Scalar color) {
@@ -512,7 +510,7 @@ namespace bias
     }
 
     void FlyTrackPlugin::rectangleUnion(cv::Mat& currentImageCopy, cv::Point2f center, cv::Size2f size, double angle, cv::Scalar color) {
-        // double y_offset = std::abs(config_.roiRightFeederCenterY - config_.roiLeftFeederCenterY);
+        // double y_offset = std::abs(config_.roiRightFeederCenterY - config_.innerOffsetOut);
         double y_offset = std::sin(angle * PI / 180.0) * size.height;
         rotatedRectangle(currentImageCopy, center, size, angle, color);
 		rotatedRectangle(currentImageCopy, cv::Point2f(center.x, center.y + y_offset), size, -angle, color);
@@ -635,11 +633,10 @@ namespace bias
             has_triggered = false;
         }
         else if (cmd == QString("get-reset-status")) {
-            value = resetStatusToJson(resetStatus);
+            value = resetStatusToJson(outerZoneStatus_);
         }
         else if (cmd == QString("get-feeder-status")) {
-            value = feederStatusToJson(feederStatus);
-
+            value = feederStatusToJson(innerZoneStatus_);
         }
         else if (cmd == QString("get-fish-centroids")) {
             if (fishCentroids_.size() == 0) {
@@ -758,8 +755,8 @@ namespace bias
         rtnStatus.success = true;
         rtnStatus.message = QString("");
         //if (config_.roiType == NONE) return rtnStatus;
-		//ell.x = config_.roiCenterX;
-		//ell.y = config_.roiCenterY;
+		//ell.x = config_.triangleCenterX;
+		//ell.y = config_.triangleCenterY;
 		//ell.a = config_.roiRadius;
 		//ell.b = config_.roiRadius;
 		//ell.theta = 0.0;
@@ -775,35 +772,35 @@ namespace bias
     void FlyTrackPlugin::setRoiUIValues() {
 		// This is where the ROI values in the GUI are set to the values in the config file
         roiTypeComboBox->setCurrentIndex(config_.roiType);
-        roiCenterXSpinBox->setValue(config_.roiCenterX);
-        roiCenterYSpinBox->setValue(config_.roiCenterY);
-        roiWidthSpinBox->setValue(config_.roiWidth);
-        roiHeightSpinBox->setValue(config_.roiHeight);
-        roiLeftFeederWidthSpinBox->setValue(config_.roiLeftFeederWidth);
-        roiLeftFeederHeightSpinBox->setValue(config_.roiLeftFeederHeight);
+        triangleCenterXSpinBox->setValue(config_.triangleCenterX);
+        triangleCenterYSpinBox->setValue(config_.triangleCenterY);
+        triangleSideSpinBox->setValue(config_.triangleSide);
+        triangleAngleSpinBox->setValue(config_.triangleAngle);
+        innerWidthSpinBox->setValue(config_.innerWidth);
+        innerHeightSpinBox->setValue(config_.innerHeight);
 		roiRightFeederWidthSpinBox->setValue(config_.roiRightFeederWidth);
 		roiRightFeederHeightSpinBox->setValue(config_.roiRightFeederHeight);
 		roiResetCenterXSpinBox->setValue(config_.roiResetCenterX);
 		roiResetCenterYSpinBox->setValue(config_.roiResetCenterY);
 		roiResetWidthSpinBox->setValue(config_.roiResetWidth);
-		roiResetHeightSpinBox->setValue(config_.roiResetHeight);
-        roiLeftFeederCenterXSpinBox->setValue(config_.roiLeftFeederCenterX);
-        roiLeftFeederCenterYSpinBox->setValue(config_.roiLeftFeederCenterY);
+		outerDepthSpinBox->setValue(config_.outerDepth);
+        innerOffsetAlongSpinBox->setValue(config_.innerOffsetAlong);
+        innerOffsetOutSpinBox->setValue(config_.innerOffsetOut);
         roiRightFeederCenterXSpinBox->setValue(config_.roiRightFeederCenterX);
         roiRightFeederCenterYSpinBox->setValue(config_.roiRightFeederCenterY);
 
-        roiCenterXSpinBox->setEnabled(true);
-        roiCenterYSpinBox->setEnabled(true);
-        roiWidthSpinBox->setEnabled(true);
-        roiHeightSpinBox->setEnabled(true);
-		roiLeftFeederWidthSpinBox->setEnabled(true);
-		roiLeftFeederHeightSpinBox->setEnabled(true);
+        triangleCenterXSpinBox->setEnabled(true);
+        triangleCenterYSpinBox->setEnabled(true);
+        triangleSideSpinBox->setEnabled(true);
+        triangleAngleSpinBox->setEnabled(true);
+		innerWidthSpinBox->setEnabled(true);
+		innerHeightSpinBox->setEnabled(true);
 		roiRightFeederWidthSpinBox->setEnabled(true);
 		roiRightFeederHeightSpinBox->setEnabled(true);
 		roiResetCenterXSpinBox->setEnabled(true);
 		roiResetCenterYSpinBox->setEnabled(true);
 		roiResetWidthSpinBox->setEnabled(true);
-		roiResetHeightSpinBox->setEnabled(true);
+		outerDepthSpinBox->setEnabled(true);
 
     }
 
@@ -838,13 +835,13 @@ namespace bias
         );
 
         connect(
-            roiCenterXSpinBox,
+            triangleCenterXSpinBox,
             SIGNAL(valueChanged(int)),
             this,
             SLOT(roiUiChanged(int))
         );
         connect(
-            roiCenterYSpinBox,
+            triangleCenterYSpinBox,
             SIGNAL(valueChanged(int)),
             this,
             SLOT(roiUiChanged(int))
@@ -1106,23 +1103,23 @@ namespace bias
 
     void FlyTrackPlugin::getUiRoiValues(FlyTrackConfig& config) {
         ROIType roiType = (ROIType)roiTypeComboBox->currentIndex();
-        double roiCenterX = roiCenterXSpinBox->value();
-        double roiCenterY = roiCenterYSpinBox->value();
-        double roiWidth = roiWidthSpinBox->value();
-        double roiHeight = roiHeightSpinBox->value();
+        double triangleCenterX = triangleCenterXSpinBox->value();
+        double triangleCenterY = triangleCenterYSpinBox->value();
+        double triangleSide = triangleSideSpinBox->value();
+        double triangleAngle = triangleAngleSpinBox->value();
 		double roiResetCenterX = roiResetCenterXSpinBox->value();
 		double roiResetCenterY = roiResetCenterYSpinBox->value();
 		double roiResetWidth = roiResetWidthSpinBox->value();
-		double roiResetHeight = roiResetHeightSpinBox->value();
-		double roiLeftFeederCenterX = roiLeftFeederCenterXSpinBox->value();
-		double roiLeftFeederCenterY = roiLeftFeederCenterYSpinBox->value();
-		double roiLeftFeederWidth = roiLeftFeederWidthSpinBox->value();
-		double roiLeftFeederHeight = roiLeftFeederHeightSpinBox->value();
+		double outerDepth = outerDepthSpinBox->value();
+		double innerOffsetAlong = innerOffsetAlongSpinBox->value();
+		double innerOffsetOut = innerOffsetOutSpinBox->value();
+		double innerWidth = innerWidthSpinBox->value();
+		double innerHeight = innerHeightSpinBox->value();
 		double roiRightFeederCenterX = roiRightFeederCenterXSpinBox->value();
 		double roiRightFeederCenterY = roiRightFeederCenterYSpinBox->value();
 		double roiRightFeederWidth = roiRightFeederWidthSpinBox->value();
 		double roiRightFeederHeight = roiRightFeederHeightSpinBox->value();
-		config.setRoiParams(roiType, roiCenterX, roiCenterY, roiWidth, roiHeight, roiLeftFeederCenterX, roiLeftFeederCenterY, roiLeftFeederWidth, roiLeftFeederHeight, roiRightFeederCenterX, roiRightFeederCenterY, roiRightFeederWidth, roiRightFeederHeight, roiResetCenterX, roiResetCenterY, roiResetWidth, roiResetHeight);
+		config.setRoiParams(roiType, triangleCenterX, triangleCenterY, triangleSide, triangleAngle, innerOffsetAlong, innerOffsetOut, innerWidth, innerHeight, roiRightFeederCenterX, roiRightFeederCenterY, roiRightFeederWidth, roiRightFeederHeight, roiResetCenterX, roiResetCenterY, roiResetWidth, outerDepth);
     }
 
     void FlyTrackPlugin::getUiBgEstValues(FlyTrackConfig& config) {
@@ -1171,24 +1168,24 @@ namespace bias
         roiTypeLabel->setEnabled(!v);
         switch (config.roiType) {
             case RECTANGLE:
-                roiCenterXSpinBox->setEnabled(!v);
-                roiCenterXLabel->setEnabled(!v);
-                roiCenterYSpinBox->setEnabled(!v);
-                roiCenterYLabel->setEnabled(!v);
-                roiWidthSpinBox->setEnabled(!v);
-                roiWidthLabel->setEnabled(!v);
-                roiHeightSpinBox->setEnabled(!v);
-                roiHeightLabel->setEnabled(!v);
-                roiLeftFeederCenterXSpinBox->setEnabled(!v);
-				roiLeftFeederCenterXLabel->setEnabled(!v);
-				roiLeftFeederCenterYSpinBox->setEnabled(!v);
-				roiLeftFeederCenterYLabel->setEnabled(!v);
+                triangleCenterXSpinBox->setEnabled(!v);
+                triangleCenterXLabel->setEnabled(!v);
+                triangleCenterYSpinBox->setEnabled(!v);
+                triangleCenterYLabel->setEnabled(!v);
+                triangleSideSpinBox->setEnabled(!v);
+                triangleSideLabel->setEnabled(!v);
+                triangleAngleSpinBox->setEnabled(!v);
+                triangleAngleLabel->setEnabled(!v);
+                innerOffsetAlongSpinBox->setEnabled(!v);
+				innerOffsetAlongLabel->setEnabled(!v);
+				innerOffsetOutSpinBox->setEnabled(!v);
+				innerOffsetOutLabel->setEnabled(!v);
 				roiRightFeederCenterXSpinBox->setEnabled(!v);
 				roiRightFeederCenterXLabel->setEnabled(!v);
-				roiLeftFeederWidthLabel->setEnabled(!v);
-				roiLeftFeederWidthSpinBox->setEnabled(!v);
-				roiLeftFeederHeightLabel->setEnabled(!v);
-				roiLeftFeederHeightSpinBox->setEnabled(!v);
+				innerWidthLabel->setEnabled(!v);
+				innerWidthSpinBox->setEnabled(!v);
+				innerHeightLabel->setEnabled(!v);
+				innerHeightSpinBox->setEnabled(!v);
 				roiRightFeederCenterYSpinBox->setEnabled(!v);
 				roiRightFeederCenterYLabel->setEnabled(!v);
 				roiRightFeederWidthLabel->setEnabled(!v);
@@ -1201,8 +1198,8 @@ namespace bias
 				roiResetCenterYSpinBox->setEnabled(!v);
 				roiResetWidthLabel->setEnabled(!v);
 				roiResetWidthSpinBox->setEnabled(!v);
-				resetROIHeightLabel->setEnabled(!v);
-				roiResetHeightSpinBox->setEnabled(!v);
+				outerDepthLabel->setEnabled(!v);
+				outerDepthSpinBox->setEnabled(!v);
                 break;
         }
 		tmpOutDirLineEdit->setEnabled(true);
@@ -1353,6 +1350,8 @@ namespace bias
         velocityHistory_.clear();
         orientationHistory_.clear();
         headTailResolved_ = false;
+        outerZoneStatus_ = std::vector<int>(3, 0);
+        innerZoneStatus_ = std::vector<int>(3, 0);
 
         setFromConfig(config_);
     }
@@ -1419,31 +1418,131 @@ namespace bias
         cv::Mat unionMask = cv::Mat::zeros(bgMedianImage_.size(), CV_8U);
         cv::Mat mask1 = rotatedRectangleROI(centerX, centerY, width, height, angle);
         double y_offset = std::sin(angle * PI / 180.0) * height;
-        // double y_offset = std::abs(config_.roiLeftFeederCenterY - config_.roiRightFeederCenterY);
+        // double y_offset = std::abs(config_.innerOffsetOut - config_.roiRightFeederCenterY);
         cv::Mat mask2 = rotatedRectangleROI(centerX, centerY + y_offset, width, height, -angle);
         cv::bitwise_or(mask1, mask2, unionMask);
         return unionMask;
         //cv::polylines(image, &pts, &n, 1, true, cv::Scalar(0, 0, 255), 2); // Blue polygon for union
     }
 
-    // void setROI()
-    // set the region of interest mask based on roiType_
-    // currently only rectangle is implemented (circle may be implemented too)
+    // RoiGeometry computeRoiGeometry(config)
+    // Build the triangle-based ROI layout from the config. Mapping of the (unchanged) GUI fields:
+    //   Main ROI:   triangleCenterX/Y = triangle center, triangleSide = triangle side length,
+    //               triangleAngle = rotation of the whole structure (degrees).
+    //   Reset ROI:  outer-rect extent along the shared edge is hard-coded to the triangle side
+    //               (triangleSide), so the rectangles always meet at the triangle vertices;
+    //               outerDepth = outward depth. (roiResetWidth is no longer used.)
+    //   Feeder ROI (Left): innerOffsetAlong/Y = inner-rect center offset, measured from the outer
+    //               rectangle's corner at the edge-start vertex, along the edge (X) and outward (Y);
+    //               innerWidth/Height = inner-rect size.
+    // All three outer rectangles are identical (from the Reset ROI); all three inner rectangles are
+    // identical (from the Feeder-Left ROI). Zone index 0-2 = triangle edge k (joining vertex k, k+1).
+    RoiGeometry FlyTrackPlugin::computeRoiGeometry(const FlyTrackConfig& config) {
+        RoiGeometry geom;
+        const double cx = config.triangleCenterX;
+        const double cy = config.triangleCenterY;
+        const double side = config.triangleSide;        // triangle side length
+        const double angleDeg = config.triangleAngle;   // rotation of the whole structure (degrees)
+        const double W = side;                      // outer-rect extent along the edge, hard-coded to the triangle side
+        const double H = config.outerDepth;     // outer-rect extent outward (depth)
+        const double fx = config.innerOffsetAlong;  // inner center offset along edge (u)
+        const double fy = config.innerOffsetOut;  // inner center offset outward (n)
+        const double fw = config.innerWidth;    // inner-rect width  (along edge)
+        const double fh = config.innerHeight;   // inner-rect height (outward)
 
+        const double R = side / std::sqrt(3.0);     // circumradius (center to vertex)
+        const double phi = angleDeg * PI / 180.0;
+        const double base = -PI / 2.0;              // at angle 0, vertex 0 points "up" (image y-down)
+
+        // Triangle vertices
+        for (int k = 0; k < 3; k++) {
+            double a = phi + base + k * 2.0 * PI / 3.0;
+            geom.triangle.push_back(cv::Point2f((float)(cx + R * std::cos(a)),
+                                                (float)(cy + R * std::sin(a))));
+        }
+
+        // One outer rectangle + one inner rectangle per triangle edge
+        for (int k = 0; k < 3; k++) {
+            cv::Point2f Vk = geom.triangle[k];
+            cv::Point2f Vk1 = geom.triangle[(k + 1) % 3];
+            double Mx = 0.5 * (Vk.x + Vk1.x);       // edge midpoint
+            double My = 0.5 * (Vk.y + Vk1.y);
+            double ex = Vk1.x - Vk.x, ey = Vk1.y - Vk.y;
+            double elen = std::sqrt(ex * ex + ey * ey);
+            if (elen < 1e-9) elen = 1.0;            // guard against a degenerate (side <= 0) triangle
+            double ux = ex / elen, uy = ey / elen;  // unit vector along the edge
+            double nx = -uy, ny = ux;               // edge normal
+            if ((Mx - cx) * nx + (My - cy) * ny < 0.0) { nx = -nx; ny = -ny; } // force outward
+            double angDeg = std::atan2(uy, ux) * 180.0 / PI;
+
+            // Outer rectangle: inner side flush with the triangle edge, extending outward by H
+            cv::Point2f outerCenter((float)(Mx + 0.5 * H * nx), (float)(My + 0.5 * H * ny));
+            geom.outer.push_back(cv::RotatedRect(outerCenter, cv::Size2f((float)W, (float)H), (float)angDeg));
+
+            // Inner rectangle: (fx, fy) measured in the (edge, outward) frame anchored at the outer
+            // rectangle's corner on the edge-start vertex side (O = edge midpoint - W/2 along the edge).
+            double Ox = Mx - 0.5 * W * ux;
+            double Oy = My - 0.5 * W * uy;
+            cv::Point2f innerCenter((float)(Ox + fx * ux + fy * nx), (float)(Oy + fx * uy + fy * ny));
+            geom.inner.push_back(cv::RotatedRect(innerCenter, cv::Size2f((float)fw, (float)fh), (float)angDeg));
+        }
+        return geom;
+    }
+
+    // Filled mask (255 inside, 0 outside) for the triangle
+    cv::Mat FlyTrackPlugin::triangleMask(const std::vector<cv::Point2f>& triangle) {
+        cv::Mat mask = cv::Mat::zeros(bgMedianImage_.size(), CV_8U);
+        cv::Point pts[3];
+        for (int i = 0; i < 3; i++) pts[i] = triangle[i];
+        cv::fillConvexPoly(mask, pts, 3, cv::Scalar(255));
+        return mask;
+    }
+
+    // Filled mask (255 inside, 0 outside) for a rotated rectangle
+    cv::Mat FlyTrackPlugin::rotatedRectMask(const cv::RotatedRect& rrect) {
+        cv::Mat mask = cv::Mat::zeros(bgMedianImage_.size(), CV_8U);
+        cv::Point2f v[4];
+        rrect.points(v);
+        cv::Point pts[4];
+        for (int i = 0; i < 4; i++) pts[i] = v[i];
+        cv::fillConvexPoly(mask, pts, 4, cv::Scalar(255));
+        return mask;
+    }
+
+    // Draw triangle outline
+    void FlyTrackPlugin::drawTriangle(cv::Mat& img, const std::vector<cv::Point2f>& triangle, cv::Scalar color) {
+        for (int i = 0; i < 3; i++) cv::line(img, triangle[i], triangle[(i + 1) % 3], color, 2);
+    }
+
+    // Draw rotated-rectangle outline
+    void FlyTrackPlugin::drawRotatedRect(cv::Mat& img, const cv::RotatedRect& rrect, cv::Scalar color) {
+        cv::Point2f v[4];
+        rrect.points(v);
+        for (int i = 0; i < 4; i++) cv::line(img, v[i], v[(i + 1) % 4], color, 2);
+    }
+
+    // Return true if any foreground contour inside mask exceeds the fish pixel-area threshold
+    bool FlyTrackPlugin::detectFishInMask(const cv::Mat& isFg, const cv::Mat& mask) {
+        cv::Mat masked;
+        isFg.copyTo(masked, mask);
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(masked, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        for (size_t i = 0; i < contours.size(); i++) {
+            if (cv::contourArea(contours[i]) > fish_detect_pixel_threshold) return true;
+        }
+        return false;
+    }
+
+    // void setROI()
+    // Main ROI mask is the equilateral triangle; the outer/inner rectangles are computed on demand
+    // from roiGeom_. currently only RECTANGLE roiType is implemented.
     void FlyTrackPlugin::setROI(FlyTrackConfig config) {
         if (!bgImageComputed_) return;
-        printf("setting ROI\n");
-        // roi mask
+        printf("setting ROI (triangle Main ROI + 3 outer Reset + 3 inner Feeder rectangles)\n");
         switch (config.roiType) {
         case RECTANGLE:
-            printf("setting rectangle ROI: top left corner %f, %f, width %f, height %f\n", config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight);
-            //inROI_ = rectangleROI(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight); // Mask for central ROI (detects all fish)
-            //inROI_left_ = rectangleROI(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight); // Mask for ROI at the left feeder
-            //inROI_right_ = rectangleROI(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight); // Mask for ROI at the right feeder
-            inROI_ = rotatedUnionROI(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight, roi_angle); // Mask for central ROI (detects all fish)
-            inROI_left_ = rotatedRectangleROI(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY, config_.roiLeftFeederWidth, config_.roiLeftFeederHeight, roi_angle); // Mask for ROI at the left feeder
-            inROI_right_ = rotatedRectangleROI(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY, config_.roiRightFeederWidth, config_.roiRightFeederHeight, roi_angle); // Mask for ROI at the right 
-			inROI_reset_ = rotatedRectangleROI(config_.roiResetCenterX, config_.roiResetCenterY, config_.roiResetWidth, config_.roiResetHeight, roi_angle); // Mask for ROI at the reset area
+            roiGeom_ = computeRoiGeometry(config);
+            inROI_ = triangleMask(roiGeom_.triangle); // Main ROI mask = equilateral triangle
             break;
         }
     }
@@ -1481,10 +1580,10 @@ namespace bias
         bgMedianImage_ = bgMedianImage.clone();
         cv::add(bgMedianImage, config_.backgroundThreshold, bgUpperBoundImage_);
         cv::subtract(bgMedianImage, config_.backgroundThreshold, bgLowerBoundImage_);
-        roiCenterXSpinBox->setRange(0, bgMedianImage.cols);
-        roiCenterYSpinBox->setRange(0, bgMedianImage.rows);
-        roiWidthSpinBox->setRange(0, bgMedianImage.cols);
-        roiHeightSpinBox->setRange(0, bgMedianImage.rows);
+        triangleCenterXSpinBox->setRange(0, bgMedianImage.cols);
+        triangleCenterYSpinBox->setRange(0, bgMedianImage.rows);
+        triangleSideSpinBox->setRange(0, bgMedianImage.cols);
+        triangleAngleSpinBox->setRange(0, bgMedianImage.rows);
 
         // roi mask
         setROI(config);
@@ -1520,15 +1619,14 @@ namespace bias
         cv::cvtColor(colorMatImage, colorMatImage, cv::COLOR_GRAY2BGR);
         switch (config.roiType) {
             case RECTANGLE:
-                //cv::circle(colorMatImage, cv::Point(config.roiCenterX, config.roiCenterY), config.roiRadius, cv::Scalar(0, 0, 255), 2);
-                //cv::rectangle(colorMatImage, cv::Rect(config.roiCenterX, config.roiCenterY, config.roiWidth, config.roiHeight) , cv::Scalar(0, 0, 255), 2);
-                //cv::rectangle(colorMatImage, cv::Rect(config.roiLeftFeederCenterX, config.roiLeftFeederCenterY, config.roiLeftFeederWidth, config.roiLeftFeederHeight), cv::Scalar(0, 0, 255), 2);
-                //cv::rectangle(colorMatImage, cv::Rect(config.roiRightFeederCenterX, config.roiRightFeederCenterY, config.roiRightFeederWidth, config.roiRightFeederHeight), cv::Scalar(0, 0, 255), 2);
-                rectangleUnion(colorMatImage, cv::Point2f(config.roiCenterX, config.roiCenterY), cv::Size2f(config.roiWidth, config.roiHeight), roi_angle, cv::Scalar(0, 0, 255));
-                rotatedRectangle(colorMatImage, cv::Point2f(config_.roiLeftFeederCenterX, config_.roiLeftFeederCenterY), cv::Size2f(config_.roiLeftFeederWidth, config_.roiLeftFeederHeight), roi_angle, cv::Scalar(255, 0, 0));
-                rotatedRectangle(colorMatImage, cv::Point2f(config_.roiRightFeederCenterX, config_.roiRightFeederCenterY), cv::Size2f(config_.roiRightFeederWidth, config_.roiRightFeederHeight), -roi_angle, cv::Scalar(255, 0, 0));
-				rotatedRectangle(colorMatImage, cv::Point2f(config_.roiResetCenterX, config_.roiResetCenterY), cv::Size2f(config_.roiResetWidth, config_.roiResetHeight), 0, cv::Scalar(100, 255, 0));
+            {
+                // Draw triangle-based ROI layout: triangle (Main, red), 3 outer (Reset, green), 3 inner (Feeder, blue).
+                RoiGeometry geom = computeRoiGeometry(config);
+                drawTriangle(colorMatImage, geom.triangle, cv::Scalar(0, 0, 255));
+                for (int i = 0; i < 3; i++) drawRotatedRect(colorMatImage, geom.outer[i], cv::Scalar(100, 255, 0));
+                for (int i = 0; i < 3; i++) drawRotatedRect(colorMatImage, geom.inner[i], cv::Scalar(255, 0, 0));
                 break;
+            }
         }
 
 		QImage img = matToQImage(colorMatImage);
@@ -2109,19 +2207,27 @@ namespace bias
         return json;
     }
 
-    QString feederStatusToJson(unsigned int feederStatus) {
-        // 1: left feeder, 2: right feeder, 3: both feeders, 0: no feeder
-        QString json = QString("{");
-        json += QString("\"feeder\": %1").arg(feederStatus);
-        json += QString("}");
+    // Serialize per-zone occupancy of the 3 inner (Feeder) rectangles as {"feeder": [z0, z1, z2]},
+    // where each entry is 1 (fish detected in that zone) or 0. Zone index = triangle-edge order.
+    QString feederStatusToJson(const std::vector<int>& zoneStatus) {
+        QString json = QString("{\"feeder\": [");
+        for (size_t i = 0; i < zoneStatus.size(); ++i) {
+            json += QString::number(zoneStatus[i]);
+            if (i + 1 < zoneStatus.size()) json += QString(", ");
+        }
+        json += QString("]}");
         return json;
     }
 
-    QString resetStatusToJson(unsigned int resetStatus) {
-		// 0: no reset, 1: reset
-        QString json = QString("{");
-        json += QString("\"resetROI\": %1").arg(resetStatus);
-        json += QString("}");
+    // Serialize per-zone occupancy of the 3 outer (Reset) rectangles as {"resetROI": [z0, z1, z2]},
+    // where each entry is 1 (fish detected in that zone) or 0. Zone index = triangle-edge order.
+    QString resetStatusToJson(const std::vector<int>& zoneStatus) {
+        QString json = QString("{\"resetROI\": [");
+        for (size_t i = 0; i < zoneStatus.size(); ++i) {
+            json += QString::number(zoneStatus[i]);
+            if (i + 1 < zoneStatus.size()) json += QString(", ");
+        }
+        json += QString("]}");
         return json;
     }
 
