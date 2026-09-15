@@ -104,10 +104,11 @@ namespace bias
         RtnStatus rtnStatus;
         rtnStatus.success = true;
         rtnStatus.message = QString("");
+        return rtnStatus;
     }
 
 
-    RtnStatus StampedePluginConfig::appendDisplayEvent(DisplayEvent displayEvent) 
+    RtnStatus StampedePluginConfig::appendDisplayEvent(DisplayEvent displayEvent)
     {
         RtnStatus rtnCheckValues = displayEvent.checkValues();
         if (!rtnCheckValues.success)
@@ -118,6 +119,7 @@ namespace bias
         RtnStatus rtnStatus;
         rtnStatus.success = true;
         rtnStatus.message = QString("");
+        return rtnStatus;
     }
 
 

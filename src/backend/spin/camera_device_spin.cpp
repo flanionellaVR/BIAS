@@ -37,26 +37,37 @@ namespace bias {
         }
     }
 
-    CameraDevice_spin::~CameraDevice_spin() 
+    CameraDevice_spin::~CameraDevice_spin()
     {
-
-        if (capturing_) 
-        { 
-            stopCapture(); 
-        }
-
-        if (connected_) 
-        { 
-            disconnect(); 
-        }
-
-        spinError err = spinSystemReleaseInstance(hSystem_);
-        if ( err != SPINNAKER_ERR_SUCCESS ) 
+        // Destructors must not let exceptions escape (it is implicitly
+        // noexcept, so doing so would call std::terminate). stopCapture()
+        // and disconnect(), as well as the release call below, can all
+        // throw RuntimeError on failure, so any such error is caught and
+        // logged here instead of being propagated.
+        try
         {
-            std::stringstream ssError;
-            ssError << __FUNCTION__;
-            ssError << ": unable to destroy Spinnaker context, error = " << err;
-            throw RuntimeError(ERROR_SPIN_DESTROY_CONTEXT, ssError.str());
+            if (capturing_)
+            {
+                stopCapture();
+            }
+
+            if (connected_)
+            {
+                disconnect();
+            }
+
+            spinError err = spinSystemReleaseInstance(hSystem_);
+            if ( err != SPINNAKER_ERR_SUCCESS )
+            {
+                std::stringstream ssError;
+                ssError << __FUNCTION__;
+                ssError << ": unable to destroy Spinnaker context, error = " << err;
+                throw RuntimeError(ERROR_SPIN_DESTROY_CONTEXT, ssError.str());
+            }
+        }
+        catch (std::exception &e)
+        {
+            std::cerr << __FUNCTION__ << ": error during camera shutdown: " << e.what() << std::endl;
         }
     }
 
