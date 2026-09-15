@@ -392,6 +392,23 @@ namespace bias {
 
     }
 
+
+    std::string CameraFinder::getSpinnakerVersionString()
+    {
+        spinLibraryVersion version;
+        spinError error = spinSystemGetLibraryVersion(queryContext_spin_, &version);
+        if (error != SPINNAKER_ERR_SUCCESS)
+        {
+            std::stringstream ssError;
+            ssError << __FUNCTION__;
+            ssError << ": unable to get Spinnaker library version, error=" << error;
+            throw RuntimeError(ERROR_SPIN_GET_LIBRARY_VERSION, ssError.str());
+        }
+        std::stringstream ssVersion;
+        ssVersion << version.major << "." << version.minor << "." << version.type << "." << version.build;
+        return ssVersion.str();
+    }
+
 #else
 
     // Dummy methods for when Spinnaker is not included
@@ -400,6 +417,11 @@ namespace bias {
     void CameraFinder::createQueryContext_spin() {}
     void CameraFinder::destroyQueryContext_spin() {}
     void CameraFinder::update_spin() {}
+
+    std::string CameraFinder::getSpinnakerVersionString()
+    {
+        return std::string("N/A");
+    }
 
 #endif
 

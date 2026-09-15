@@ -25,6 +25,7 @@
 #include "json_utils.hpp"
 #include "ext_ctl_http_server.hpp"
 #include "plugin_handler.hpp"
+#include "bias_version.h"
 
 //#include <cstdlib>
 #include <cmath>
@@ -127,6 +128,9 @@ namespace bias
 
     // Debug files
     const QString DEBUG_DUMP_CAMERA_PROPS_FILE_NAME("bias_camera_props_dump.txt");
+
+    // Definition of CameraWindow::spinnakerVersionString (declared in camera_window.hpp)
+    QString CameraWindow::spinnakerVersionString = QString("N/A");
 
     // Public methods
     // ----------------------------------------------------------------------------------
@@ -2546,8 +2550,13 @@ namespace bias
 
     void CameraWindow::actionHelpAboutTriggered()
     {
-        QString msgTitle("Development");
-        QString msgText("About not fully implemented");
+        QString msgTitle("About BIAS");
+        QString msgText("BIAS version ");
+        msgText += BIAS_VERSION;
+        msgText += "\nOpenCV version ";
+        msgText += CV_VERSION;
+        msgText += "\nSpinnaker version ";
+        msgText += spinnakerVersionString;
         QMessageBox::information(this, msgTitle, msgText);
     }
 
