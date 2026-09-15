@@ -105,15 +105,20 @@ add_executable(
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(.)
 target_link_libraries(
-    test_gui 
-    ${QT_LIBRARIES} 
-    ${bias_ext_link_LIBS} 
+    test_gui
+    ${QT_LIBRARIES}
+    ${bias_ext_link_LIBS}
     bias_camera_facade
     bias_utility
     stampede_plugin
     grab_detector_plugin
     flytrack_plugin
     )
+
+if(WIN32)
+    # Needed for MiniDumpWriteDump (crash dump generation in main.cpp)
+    target_link_libraries(test_gui Dbghelp)
+endif()
 
 qt5_use_modules(test_gui Core Gui Widgets Network PrintSupport SerialPort)
 

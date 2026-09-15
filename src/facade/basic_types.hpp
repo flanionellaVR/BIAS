@@ -207,7 +207,8 @@ namespace bias {
 
         // Capture Errors
         ERROR_CAPTURE_MAX_ERROR_COUNT,
-        
+        ERROR_CAPTURE_UNEXPECTED_EXCEPTION,
+
         NUMBER_OF_ERROR,
     }; 
 
