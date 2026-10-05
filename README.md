@@ -180,6 +180,15 @@ A reference polling client is provided at `src/plugin/flytrack/poll_http.py` (ke
 python src\plugin\flytrack\poll_http.py --port 5010 --cmd get-last-clear-track --rate 0 --duration 10
 ```
 
+### Stress testing the tracking endpoint
+
+`tools/stress_test_bias.py` polls `pop-back-track` as hard as it can and reports repeated and dropped frames. It needs `pip install requests` and a running BIAS window with FlyTrack enabled and capturing. It runs two phases back to back: max speed (no delay), then paced to the camera's reported FPS (120 if none is reported). A drop is a jump in the frame number; a repeat is the same frame returned twice. With `--csv`, each phase also gets a CSV and a markdown report.
+
+```powershell
+python tools\stress_test_bias.py --track-guid 23577160 --duration 300
+python tools\stress_test_bias.py --track-host http://127.0.0.1:5020 --duration 3600 --csv stress.csv
+```
+
 ## Developer Build Instructions
 
 ### Requirements
