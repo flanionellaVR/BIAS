@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Poll BIAS's tracking endpoint (`pop-back-track`) as hard as possible for a
-while, and report how many frames were dropped or otherwise irregular.
+Poll BIAS's FlyTrack tracking endpoint as hard as possible for a while, and
+report how many frames were dropped or otherwise irregular, plus request
+latency and hangs.
 
 This talks to BIAS directly over HTTP, the same way BIASBridge's
 ``BIASBridge._request`` does, but without any of the Bridge/Scene/Unity
@@ -18,21 +19,41 @@ The run has two back-to-back phases:
 
 Each phase gets its own report, since they test different things.
 
-How to read "frame": each poll returns the latest frame BIAS has ready. If
-nothing new is ready yet, it just repeats the last frame number -- that's a
-repeat, not a drop. A real drop looks like a jump in the number (frame 10,
-then frame 15): BIAS moved on without us ever seeing frames 11-14.
+Keep-alive: by default every poll appends ``keep-alive=1`` so BIAS leaves the
+TCP connection open and the next poll reuses it. Without that, BIAS closes
+the connection after each response and the poll rate is capped by TCP setup
+(~50 Hz in practice). ``--no-keep-alive`` reverts to one connection per poll,
+for comparison with clients that don't opt in.
+
+Which command to poll (``--cmd``):
+
+  pop-back-track       newest entry, popped (what BIASBridge polls). Frame
+                       gaps mix "polled too slowly" with real tracker drops.
+  pop-front-track      oldest entry, popped. Drains the queue IN ORDER, so
+                       frame gaps are genuine tracker-dropped frames (as
+                       long as you poll fast enough that the queue never
+                       overflows). Best for measuring whether tracking
+                       itself drops frames.
+  get-last-clear-track newest entry, clears the queue. Gaps are every
+                       produced frame the consumer never saw: cleared plus
+                       tracker-dropped combined.
+
+How to read "frame": a poll that finds the queue empty is "nothing new yet",
+not a drop. A drop is a jump in the frame number (frame 10, then frame 15):
+BIAS moved on without us ever seeing frames 11-14. What a jump *means*
+depends on ``--cmd`` as described above.
 
 Usage
 -----
     python tools/stress_test_bias.py --track-guid 23577160 --duration 300
     python tools/stress_test_bias.py --track-host http://127.0.0.1:5020 --duration 3600 --csv stress.csv
+    python tools/stress_test_bias.py --track-host http://127.0.0.1:5010 --cmd pop-front-track --duration 20
 
 ``--parallel N`` (default 1) keeps up to N HTTP requests in flight at once
 instead of one at a time, to check whether reading several packets
 concurrently actually raises throughput -- or just makes BIAS's `frame`
-counter jump around more, since ``pop-back-track`` mutates shared state on
-every call rather than just reading it.
+counter jump around more, since every ``--cmd`` mutates shared state on
+each call rather than just reading it.
 
 With ``--csv stress.csv`` you get four files: a raw per-poll log and a
 matching markdown report for each phase (``stress_phase1.csv``/``.md``,
@@ -51,6 +72,11 @@ import requests
 
 FALLBACK_FPS = 120.0
 
+TRACK_COMMANDS = ("pop-back-track", "pop-front-track", "get-last-clear-track")
+
+# BIAS's RtnStatus message when the FlyTrack ellipse queue has nothing to hand out.
+QUEUE_EMPTY_MESSAGE = "Ellipse queue empty"
+
 
 def find_camera(guid, timeout=0.5):
     """Same port-guessing scheme as BIASBridge's ``_find_camera``."""
@@ -67,10 +93,21 @@ def find_camera(guid, timeout=0.5):
     raise RuntimeError(f"Camera with ID {guid} not found")
 
 
-def build_pop_back_track_params():
-    payload = {"plugin": "FlyTrack", "cmd": "pop-back-track"}
+def build_track_params(cmd, keep_alive, last=False):
+    """
+    Query parameters for one FlyTrack poll.
+
+    ``keep-alive=1`` asks BIAS to leave the TCP connection open after the
+    response (it only honors this for plugin-cmd requests). On the final
+    poll ``last=True`` sends ``keep-alive=0`` so the server closes the
+    connection cleanly instead of waiting for its idle timeout.
+    """
+    payload = {"plugin": "FlyTrack", "cmd": cmd}
     payload_json = json.dumps(payload).replace(" ", "")
-    return {"plugin-cmd": payload_json}
+    params = {"plugin-cmd": payload_json}
+    if keep_alive:
+        params["keep-alive"] = "0" if last else "1"
+    return params
 
 
 def get_fps(session, host, timeout):
@@ -90,16 +127,18 @@ def get_fps(session, host, timeout):
 
 def poll_once(session, host, params, timeout):
     """
-    One HTTP round trip to BIAS's ``pop-back-track`` command.
+    One HTTP round trip to a FlyTrack track command.
 
     Returns
     -------
     latency_s : float
         Wall-clock round-trip time for this request.
     val : dict or None
-        Decoded ``value`` payload (frame/x/y/theta/timestamp), or None on error.
+        Decoded ``value`` payload (frame/x/y/theta/timestamp), or None on
+        error or when the queue was empty.
     error : str or None
-        Short error tag, or None on success.
+        Short error tag, or None on success. ``"queue-empty"`` is not a
+        failure: BIAS simply had nothing new for us yet.
     """
     t0 = time.perf_counter()
     try:
@@ -122,6 +161,8 @@ def poll_once(session, host, params, timeout):
         response_json = response_json[0]
 
     if not (response_json.get("success") and "value" in response_json):
+        if response_json.get("message") == QUEUE_EMPTY_MESSAGE:
+            return latency, None, "queue-empty"
         return latency, None, "not-success"
 
     val = response_json["value"]
@@ -155,6 +196,8 @@ def new_stats():
         "poll_count": 0,
         "error_count": 0,
         "errors_by_type": {},
+        "timeout_count": 0,
+        "queue_empty_count": 0,
         "no_detection_count": 0,
         "duplicate_count": 0,
         "new_frame_count": 0,
@@ -177,14 +220,18 @@ def new_stats():
 
 
 def record_response(stats, carry, csv_writer, poll_idx, wall_time, now, latency, val, error, stall_threshold_s):
-    """Classify one poll's response (new/repeat/backward/error) and update stats + carry in place."""
+    """Classify one poll's response (new/repeat/empty/backward/error) and update stats + carry in place."""
     stats["latencies"].append(latency)
     frame = x = y = theta = bias_ts = gap = None
     is_new_frame = False
 
-    if error:
+    if error == "queue-empty":
+        stats["queue_empty_count"] += 1
+    elif error:
         stats["error_count"] += 1
         stats["errors_by_type"][error] = stats["errors_by_type"].get(error, 0) + 1
+        if error.startswith("request-error:") and "Timeout" in error:
+            stats["timeout_count"] += 1
     elif val is None or "frame" not in val:
         stats["no_detection_count"] += 1
     else:
@@ -254,6 +301,7 @@ def print_progress_line(phase_label, elapsed, stats, current_frame, progress_las
         f"new_frames={stats['new_frame_count']} "
         f"dropped={stats['dropped_frame_total']} "
         f"dupes={stats['duplicate_count']} "
+        f"empty={stats['queue_empty_count']} "
         f"backwards={stats['backwards_count']} "
         f"no_detect={stats['no_detection_count']} "
         f"errors={stats['error_count']} "
@@ -264,7 +312,8 @@ def print_progress_line(phase_label, elapsed, stats, current_frame, progress_las
 
 def run_phase(
     host,
-    params,
+    cmd,
+    keep_alive,
     phase_duration,
     pacing_interval,
     timeout,
@@ -299,8 +348,12 @@ def run_phase(
 
     Each of the ``parallel`` slots gets its own ``requests.Session`` (a
     single Session isn't guaranteed thread-safe), reused across that slot's
-    requests for connection keep-alive.
+    requests. With ``keep_alive`` the Session's pooled connection is actually
+    reused, because BIAS answers ``Connection: keep-alive``; without it BIAS
+    closes the socket after every response and the Session reconnects each
+    time.
     """
+    params = build_track_params(cmd, keep_alive)
     stats = new_stats()
     t_start = time.perf_counter()
     t_end = t_start + phase_duration
@@ -372,6 +425,15 @@ def run_phase(
                 if not still_running and not in_flight:
                     break
     finally:
+        if keep_alive:
+            # Tell BIAS we're done so it closes each kept-open connection now
+            # rather than after its idle timeout. Not counted in the stats.
+            close_params = build_track_params(cmd, keep_alive, last=True)
+            for sess in sessions:
+                try:
+                    sess.get(host, params=close_params, timeout=timeout)
+                except requests.RequestException:
+                    pass
         for sess in sessions:
             sess.close()
 
@@ -379,7 +441,9 @@ def run_phase(
     return stats, elapsed
 
 
-def build_markdown_report(title, host, camera_fps, pacing_description, stats, elapsed, expected_interval, parallel=1):
+def build_markdown_report(
+    title, host, cmd, keep_alive, camera_fps, pacing_description, stats, elapsed, expected_interval, parallel=1
+):
     latencies_ms = [l * 1000 for l in stats["latencies"]]
     gaps = stats["gap_sizes"]
     lines = []
@@ -387,6 +451,8 @@ def build_markdown_report(title, host, camera_fps, pacing_description, stats, el
     lines.append("")
     lines.append("## Setup")
     lines.append(f"- **BIAS host:** {host}")
+    lines.append(f"- **Command:** `{cmd}`")
+    lines.append(f"- **HTTP keep-alive:** {'on (one connection reused)' if keep_alive else 'off (new connection per poll)'}")
     lines.append(f"- **BIAS-reported camera FPS:** {camera_fps}")
     lines.append(f"- **Polling mode:** {pacing_description}")
     lines.append(f"- **Concurrent connections:** {parallel}")
@@ -394,7 +460,7 @@ def build_markdown_report(title, host, camera_fps, pacing_description, stats, el
     lines.append("")
     if parallel > 1:
         lines.append(
-            "> This run used more than one connection at once. `pop-back-track` "
+            f"> This run used more than one connection at once. `{cmd}` "
             "changes BIAS's internal state on every call, so more connections may "
             "not mean more distinct frames read -- compare against a `--parallel 1` "
             "run on the same host before trusting a speed-up."
@@ -414,18 +480,40 @@ def build_markdown_report(title, host, camera_fps, pacing_description, stats, el
     lines.append("| Type of read | Count |")
     lines.append("|---|---|")
     lines.append(f"| New frame | {stats['new_frame_count']} |")
-    lines.append(f"| Repeat (BIAS had nothing new yet) | {stats['duplicate_count']} |")
+    lines.append(f"| Queue empty (BIAS had nothing new yet) | {stats['queue_empty_count']} |")
+    lines.append(f"| Repeat (same frame number again) | {stats['duplicate_count']} |")
     lines.append(f"| Went backward (see below) | {stats['backwards_count']} |")
     lines.append(f"| Fly not found (x=0, y=0) | {stats['no_detection_count']} |")
     lines.append(f"| Error | {stats['error_count']} |")
     for err, count in sorted(stats["errors_by_type"].items(), key=lambda kv: -kv[1]):
         lines.append(f"| &nbsp;&nbsp;{err} | {count} |")
+    if stats["timeout_count"]:
+        lines.append(f"| &nbsp;&nbsp;of which hangs (request timed out) | {stats['timeout_count']} |")
     lines.append("")
     lines.append("## Dropped Frames")
     lines.append(
         "A drop is a jump in BIAS's frame number: we saw frame N, then next time "
         "frame N+5, so frames N+1..N+4 were never seen."
     )
+    if cmd == "pop-front-track":
+        lines.append(
+            "`pop-front-track` drains the queue in order, so these are frames the "
+            "tracker itself skipped, as long as we polled fast enough that the queue "
+            "never overflowed."
+        )
+    elif cmd == "get-last-clear-track":
+        lines.append(
+            "`get-last-clear-track` keeps the newest entry and clears the rest, so this "
+            "is every produced frame the consumer never saw: cleared-away plus "
+            "tracker-dropped combined. Run BIAS with `-o` and diff against the "
+            "trajectory file to split the two."
+        )
+    else:
+        lines.append(
+            "`pop-back-track` returns the newest entry only, so these mix frames left "
+            "behind in the queue (polled too slowly) with real tracker drops. Use "
+            "`--cmd pop-front-track` for a true drop count."
+        )
     lines.append(f"- **Frames dropped:** {stats['dropped_frame_total']}")
     lines.append(f"- **Number of jumps:** {len(gaps)}")
     if gaps:
@@ -485,7 +573,7 @@ def build_markdown_report(title, host, camera_fps, pacing_description, stats, el
                 "fast and as steadily as the forward reads climb. That looks like BIAS "
                 "is handing back two different counters/queues on alternating calls, "
                 "not simply losing data. Since this shows up whether we poll flat-out "
-                "or paced to BIAS's own FPS, it points to BIAS's `pop-back-track` "
+                f"or paced to BIAS's own FPS, it points to BIAS's `{cmd}` "
                 "handler, not to how this script polls."
             )
     lines.append("")
@@ -518,7 +606,18 @@ def main():
     parser.add_argument("--track-host", default=None, help='e.g. "http://127.0.0.1:5020"')
     parser.add_argument("--track-guid", type=int, default=None, help="camera GUID to auto-discover")
     parser.add_argument("--duration", type=float, default=300, help="total seconds to run, split evenly across both phases (default 300)")
-    parser.add_argument("--timeout", type=float, default=1.0, help="per-request HTTP timeout, s")
+    parser.add_argument(
+        "--cmd",
+        default="pop-back-track",
+        choices=TRACK_COMMANDS,
+        help="FlyTrack command to poll (default pop-back-track; see the module docstring for what each measures)",
+    )
+    parser.add_argument(
+        "--no-keep-alive",
+        action="store_true",
+        help="open a new TCP connection for every poll instead of asking BIAS to keep one open (default: keep-alive on)",
+    )
+    parser.add_argument("--timeout", type=float, default=1.0, help="per-request HTTP timeout, s; slower requests count as hangs")
     parser.add_argument(
         "--stall-factor",
         type=float,
@@ -540,9 +639,10 @@ def main():
     if args.parallel < 1:
         parser.error("--parallel must be at least 1")
 
+    keep_alive = not args.no_keep_alive
     session = requests.Session()
     host = args.track_host or find_camera(args.track_guid)
-    print(f"Polling BIAS at {host}")
+    print(f"Polling BIAS at {host}  cmd={args.cmd}  keep-alive={'on' if keep_alive else 'off'}")
 
     fps = get_fps(session, host, args.timeout)
     if fps:
@@ -553,7 +653,6 @@ def main():
         phase2_fps = FALLBACK_FPS
     expected_interval = 1 / fps if fps else None
 
-    params = build_pop_back_track_params()
     stall_threshold_s = args.stall_factor * expected_interval if expected_interval else None
 
     half_duration = args.duration / 2
@@ -585,7 +684,8 @@ def main():
             try:
                 stats, elapsed = run_phase(
                     host=host,
-                    params=params,
+                    cmd=args.cmd,
+                    keep_alive=keep_alive,
                     phase_duration=half_duration,
                     pacing_interval=pacing_interval,
                     timeout=args.timeout,
@@ -601,7 +701,8 @@ def main():
                     csv_file.close()
 
             report_md = build_markdown_report(
-                title, host, fps, pacing_description, stats, elapsed, expected_interval, parallel=args.parallel
+                title, host, args.cmd, keep_alive, fps, pacing_description, stats, elapsed,
+                expected_interval, parallel=args.parallel,
             )
             print("\n" + report_md)
 

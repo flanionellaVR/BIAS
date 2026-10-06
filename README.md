@@ -174,19 +174,19 @@ To avoid this, a polling client can request **HTTP keep-alive**: reuse one TCP c
 - A kept-open connection is closed automatically after 5 s of inactivity, so an abandoned client doesn't leak a connection.
 - Send `keep-alive=0` (or just close the socket) on the final poll for a clean shutdown.
 
-A reference polling client is provided at `src/plugin/flytrack/poll_http.py` (keep-alive on by default; `--no-keep-alive` reverts to a new connection per poll):
-
-```powershell
-python src\plugin\flytrack\poll_http.py --port 5010 --cmd get-last-clear-track --rate 0 --duration 10
-```
+The reference polling client is `tools/stress_test_bias.py` (next section); it uses keep-alive by default and `--no-keep-alive` reverts to a new connection per poll.
 
 ### Stress testing the tracking endpoint
 
-`tools/stress_test_bias.py` polls `pop-back-track` as hard as it can and reports repeated and dropped frames. It needs `pip install requests` and a running BIAS window with FlyTrack enabled and capturing. It runs two phases back to back: max speed (no delay), then paced to the camera's reported FPS (120 if none is reported). A drop is a jump in the frame number; a repeat is the same frame returned twice. With `--csv`, each phase also gets a CSV and a markdown report.
+`tools/stress_test_bias.py` polls a FlyTrack track command as hard as it can and reports dropped frames, empty polls, request latency and hangs. It needs `pip install requests` and a running BIAS window with FlyTrack enabled and capturing (video mode with `-i` works without a camera). It runs two phases back to back: max speed (no delay), then paced to the camera's reported FPS (120 if none is reported). With `--csv`, each phase also gets a CSV and a markdown report.
+
+`--cmd` picks what to poll and therefore what a frame-number jump means: `pop-back-track` (default, what BIASBridge polls) mixes "polled too slowly" with tracker drops; `pop-front-track` drains the queue in order, so jumps are genuine tracker drops; `get-last-clear-track` counts every produced frame the consumer never saw.
 
 ```powershell
 python tools\stress_test_bias.py --track-guid 23577160 --duration 300
 python tools\stress_test_bias.py --track-host http://127.0.0.1:5020 --duration 3600 --csv stress.csv
+python tools\stress_test_bias.py --track-host http://127.0.0.1:5010 --cmd pop-front-track --duration 20
+python tools\stress_test_bias.py --track-host http://127.0.0.1:5010 --no-keep-alive --duration 20
 ```
 
 ## Developer Build Instructions
