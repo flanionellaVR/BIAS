@@ -18,17 +18,14 @@ option(with_qt_gui  "include image acquisition GUI"   ON)
 option(with_fc2     "include the FlyCapture2 backend" OFF)
 option(with_dc1394  "include the libdc1394 backend"   OFF)
 option(with_spin    "include the spin backend"   ON)
-option(with_demos   "include demos" ON)
 option(with_tests   "include tests" ON)
 option(with_video_backend     "include video backend" ON)
-# KB 20240215 - follows options for BIASJAABA - include tests and demos
-#option(with_demos   "include demos" OFF)
+# KB 20240215 - follows options for BIASJAABA - include tests
 #option(with_tests   "include tests" OFF)
 
 message(STATUS "Option: with_fc2     = ${with_fc2}")
 message(STATUS "Option: with_dc1394  = ${with_dc1394}")
 message(STATUS "Option: with_qt_gui  = ${with_qt_gui}")
-message(STATUS "Option: with_demos   = ${with_demos}")
 message(STATUS "Option: with_tests   = ${with_tests}") 
 message(STATUS "Option: with_video_backend     = ${with_video_backend}")
 
@@ -189,16 +186,6 @@ include_directories("./src/3rd_party/qcustomplot")
 #                        #${HEFFALUMP_SRC_DIR}/src)
 #endif()
 
-# KB 20240507 removing HDF5 dependency
-#if(with_demos) 
-#    include_directories(${CUDA_INCLUDE_DIRS} 
-#                        ${HDF5_INCLUDE_DIRS})
-#endif()
-# KB 20240507 - remove CUDA
-#if(with_demos) 
-#    include_directories(${CUDA_INCLUDE_DIRS})
-#endif()
-
 
 if(with_fc2)
     include_directories(${FlyCapture2_INCLUDE_DIRS})
@@ -244,15 +231,6 @@ if(with_dc1394)
 endif()
 set(bias_ext_link_LIBS ${bias_ext_link_LIBS})
 
-# KB 20240215 - added to follow BIASJAABA
-# KB 20240507 removing HDF5 dependency
-#if(with_demos)
-#    set(bias_ext_link_LIBS ${bias_ext_link_LIBS} ${HDF5_CXX_LIBRARIES})
-#endif()
-if(with_demos)
-    set(bias_ext_link_LIBS ${bias_ext_link_LIBS})
-endif()
-
 message(STATUS "${bias_ext_link_LIBS}")
 
 
@@ -290,10 +268,6 @@ add_subdirectory("src/3rd_party/qcustomplot")
 
 if(with_qt_gui)
     add_subdirectory("src/gui")
-endif()
-
-if (with_demos)
-    add_subdirectory("src/demo/fly_sorter")
 endif()
 
 if (with_tests)
