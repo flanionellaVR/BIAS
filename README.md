@@ -265,7 +265,6 @@ cmake -S . -B build-vs `
     -Dwith_dc1394=OFF `
     -Dwith_qt_gui=ON `
     -Dwith_video_backend=ON `
-    -Dwith_demos=OFF `
     -Dwith_tests=OFF
 ```
 
@@ -301,6 +300,46 @@ NodeMapData_MD_VC140_v3_0.dll
 XMLParser_MD_VC140_v3_0.dll
 
 Program was crashing in the StampedePlugin, commented out. 
+
+### Video-only build (no camera backend)
+
+BIAS can be configured with every camera backend switched off and only the
+video backend enabled. No camera SDK (Spinnaker, FlyCapture2, libdc1394) is
+needed, so this is the configuration for CI runners and for developing against
+recorded videos on a machine without cameras:
+
+```powershell
+cmake -S . -B build-video `
+    -G "Visual Studio 17 2022" `
+    -A x64 `
+    -DOpenCV_DIR=C:\Code\opencv4\build `
+    -DQt5_DIR=C:\Qt\5.15.2\msvc2019_64\lib\cmake\Qt5 `
+    -Dwith_spin=OFF `
+    -Dwith_fc2=OFF `
+    -Dwith_dc1394=OFF `
+    -Dwith_video_backend=ON `
+    -Dwith_qt_gui=ON `
+    -Dwith_tests=OFF
+cmake --build build-video --config Release
+```
+
+Notes:
+
+- CMake prints `No camera backend enabled: video-only build` at configure
+  time. Switching the video backend off as well is an error (at least one
+  backend must be enabled).
+- The camera facade (`src/facade`) compiles through its `#else` stubs: the
+  per-backend `createCameraDevice_*` methods become no-ops and
+  `CameraFinder` finds no cameras.
+- In this build `test_gui` has no cameras to enumerate, so start it with a
+  video file: `test_gui.exe -i path\to\video.avi`. The GUI then creates a
+  single camera window that captures from the file.
+- `with_tests` should stay OFF: the per-backend test programs (`test_spin`,
+  `test_fc2`, `test_dc1394`) are only added when their backend is on, so the
+  option builds nothing here. They are also the only remaining callers of
+  OpenCV highgui window functions (`cv::namedWindow`, `cv::imshow`), which a
+  headless OpenCV may lack. The former `fly_sorter` demo and its `with_demos`
+  option were removed (#35), so there is no demo flag to turn off for CI.
 
 ### Deploying the Qt runtime (windeployqt)
 
