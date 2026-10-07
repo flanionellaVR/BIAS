@@ -1,6 +1,8 @@
 #include "video_utils.hpp"
 #include <opencv2/videoio.hpp>
 #include <iostream>
+#include <sstream>
+#include "exception.hpp"
 //#include "stampedImage.hpp"
 
 
@@ -16,8 +18,12 @@ namespace bias {
 
         filename = file;
         cap_.open(filename.toStdString().c_str());
-        isOpen_ = true;
-        dt_ = 1.0 / (double)getFPS();
+        isOpen_ = cap_.isOpened();
+        dt_ = 1.0 / 30.0;
+        if (isOpen_) {
+            float fps = getFPS();
+            if (fps > 0.0f) { dt_ = 1.0 / (double)fps; }
+        }
 
     }
 
@@ -32,8 +38,9 @@ namespace bias {
     void videoBackend::checkCapOpen() {
 
         if (!isOpen_) {
-			printf("video capture object not open"); 
-			exit(-1);   
+            std::stringstream ssError;
+            ssError << "video capture object not open: " << filename.toStdString();
+            throw RuntimeError(ERROR_VIDEO_OPEN, ssError.str());
 		}
 
 	}
@@ -163,4 +170,4 @@ namespace bias {
         
     }
 
-}
+}

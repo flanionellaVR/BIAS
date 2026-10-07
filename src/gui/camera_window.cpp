@@ -520,6 +520,13 @@ namespace bias
 
         connect(
                 imageGrabberPtr_,
+                SIGNAL(videoFinished()),
+                this,
+                SLOT(videoCaptureFinished())
+               );
+
+        connect(
+                imageGrabberPtr_,
                 SIGNAL(captureError(unsigned int, QString)),
                 this,
                 SLOT(imageCaptureError(unsigned int, QString))
@@ -1965,6 +1972,17 @@ namespace bias
         msgText += "\n\n";
         msgText += errorMsg;
         QMessageBox::critical(this, msgTitle, msgText);
+    }
+
+
+    void CameraWindow::videoCaptureFinished()
+    {
+        // The grabber stopped by itself at the end of the video; bring the GUI back
+        // to the stopped state the same way the Stop button does.
+        if (capturing_)
+        {
+            stopImageCapture();
+        }
     }
 
 

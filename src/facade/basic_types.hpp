@@ -207,6 +207,9 @@ namespace bias {
 
         // Capture Errors
         ERROR_CAPTURE_MAX_ERROR_COUNT,
+
+        // Video Backend Errors
+        ERROR_VIDEO_OPEN,
         
         NUMBER_OF_ERROR,
     }; 
