@@ -76,6 +76,17 @@ int main (int argc, char *argv[])
     bias::CameraFinder cameraFinder;
     std::list<QSharedPointer<bias::CameraWindow>> windowPtrList;
 
+    // Query the Spinnaker library version once for the About dialog; not fatal if it fails.
+    try
+    {
+        bias::CameraWindow::spinnakerVersionString =
+            QString::fromStdString(cameraFinder.getSpinnakerVersionString());
+    }
+    catch (bias::RuntimeError &runtimeError)
+    {
+        std::cerr << "Unable to get Spinnaker library version: " << runtimeError.what() << std::endl;
+    }
+
     if (!params.inVideoFile.isEmpty())
     {
         // Video-input mode: no physical camera. Use a single placeholder guid so one
