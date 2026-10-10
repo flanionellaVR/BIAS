@@ -50,23 +50,36 @@ namespace bias {
     }
 
 
-    CameraDevice_fc2::~CameraDevice_fc2() 
+    CameraDevice_fc2::~CameraDevice_fc2()
     {
-        if (capturing_) { stopCapture(); }
-
-        if (convertedImageCreated_) { destroyConvertedImage(); }
-
-        if (rawImageCreated_) { destroyRawImage(); }
-
-        if (connected_) { disconnect(); }
-
-        fc2Error error = fc2DestroyContext(context_);
-        if ( error != FC2_ERROR_OK ) 
+        // Destructors must not let exceptions escape (it is implicitly
+        // noexcept, so doing so would call std::terminate). stopCapture(),
+        // destroyConvertedImage(), destroyRawImage() and disconnect(), as
+        // well as the destroy-context call below, can all throw
+        // RuntimeError on failure, so any such error is caught and logged
+        // here instead of being propagated.
+        try
         {
-            std::stringstream ssError;
-            ssError << __PRETTY_FUNCTION__;
-            ssError << ": unable to destroy FlyCapture2 context";
-            throw RuntimeError(ERROR_FC2_DESTROY_CONTEXT, ssError.str());
+            if (capturing_) { stopCapture(); }
+
+            if (convertedImageCreated_) { destroyConvertedImage(); }
+
+            if (rawImageCreated_) { destroyRawImage(); }
+
+            if (connected_) { disconnect(); }
+
+            fc2Error error = fc2DestroyContext(context_);
+            if ( error != FC2_ERROR_OK )
+            {
+                std::stringstream ssError;
+                ssError << __PRETTY_FUNCTION__;
+                ssError << ": unable to destroy FlyCapture2 context";
+                throw RuntimeError(ERROR_FC2_DESTROY_CONTEXT, ssError.str());
+            }
+        }
+        catch (std::exception &e)
+        {
+            std::cerr << __PRETTY_FUNCTION__ << ": error during camera shutdown: " << e.what() << std::endl;
         }
     }
 
