@@ -162,6 +162,13 @@ namespace bias {
                 errorId = runtimeError.id();
                 errorMsg = QString::fromStdString(runtimeError.what());
             }
+            catch (...)
+            {
+                std::cout << "Unexpected exception in startCapture, camera " << cameraNumber_ << std::endl;
+                error = true;
+                errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
+                errorMsg = QString("Unexpected exception in startCapture");
+            }
             cameraPtr_->releaseLock();
 
             if (error)
@@ -206,12 +213,33 @@ namespace bias {
         double playNextMs = 0.0;
         if (isVideo_ && playFps_ > 0.0) { playTimer.start(); }
 
+        // Heartbeat: periodically log this camera's frame count so a stalled/crashed
+        // run can be correlated against the last time frames were actually arriving.
+        QElapsedTimer heartbeatTimer;
+        heartbeatTimer.start();
+        const qint64 heartbeatIntervalMs = 30000;
+        unsigned long heartbeatLastFrameCount = 0;
+
         // Grab images from camera until the done signal is given
         while (!done)
         {
             acquireLock();
             done = stopped_;
             releaseLock();
+
+            // Errors are per-frame: a successful grab after a failed one must
+            // resume pushing frames and reset errorCount below.
+            error = false;
+
+            if (heartbeatTimer.elapsed() >= heartbeatIntervalMs)
+            {
+                std::cout << "HEARTBEAT: camera " << cameraNumber_
+                          << ", frameCount = " << frameCount
+                          << ", framesSinceLast = " << (frameCount - heartbeatLastFrameCount)
+                          << std::endl;
+                heartbeatLastFrameCount = frameCount;
+                heartbeatTimer.restart();
+            }
 
             // pace video playback to playFps_ (sleep until this frame's scheduled time)
             if (isVideo_ && playFps_ > 0.0)
@@ -241,6 +269,11 @@ namespace bias {
 					std::cout << runtimeError.what() << std::endl;
 					error = true;
 				}
+				catch (...)
+				{
+					std::cout << "Unexpected exception during video frame grab" << std::endl;
+					error = true;
+				}
             }
             else {
                 try
@@ -253,6 +286,11 @@ namespace bias {
                     std::cout << "Frame grab error: id = ";
                     std::cout << runtimeError.id() << ", what = ";
                     std::cout << runtimeError.what() << std::endl;
+                    error = true;
+                }
+                catch (...)
+                {
+                    std::cout << "Unexpected exception during frame grab, camera " << cameraNumber_ << std::endl;
                     error = true;
                 }
             }
@@ -387,6 +425,13 @@ namespace bias {
                 error = true;
                 errorId = runtimeError.id();
                 errorMsg = QString::fromStdString(runtimeError.what());
+            }
+            catch (...)
+            {
+                std::cout << "Unexpected exception in stopCapture, camera " << cameraNumber_ << std::endl;
+                error = true;
+                errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
+                errorMsg = QString("Unexpected exception in stopCapture");
             }
             cameraPtr_->releaseLock();
         }
