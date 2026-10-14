@@ -25,12 +25,24 @@ option(with_video_backend     "include video backend" ON)
 
 message(STATUS "Option: with_fc2     = ${with_fc2}")
 message(STATUS "Option: with_dc1394  = ${with_dc1394}")
+message(STATUS "Option: with_spin    = ${with_spin}")
 message(STATUS "Option: with_qt_gui  = ${with_qt_gui}")
 message(STATUS "Option: with_tests   = ${with_tests}") 
 message(STATUS "Option: with_video_backend     = ${with_video_backend}")
 
-if( NOT( with_fc2 OR with_dc1394 OR with_spin) )
-    message(FATAL_ERROR "their must be at least one camera backend")
+# At least one backend must be enabled. The video backend alone is a valid
+# configuration (no camera SDK needed, e.g. on CI runners): the facade compiles
+# through its #else stubs and test_gui must then be started with
+# -i <video-file> because there are no cameras to enumerate.
+if(NOT (with_fc2 OR with_dc1394 OR with_spin OR with_video_backend))
+    message(FATAL_ERROR
+        "there must be at least one backend: enable with_fc2, with_dc1394, "
+        "with_spin or with_video_backend")
+endif()
+
+if(NOT (with_fc2 OR with_dc1394 OR with_spin))
+    message(STATUS "No camera backend enabled: video-only build "
+                   "(run test_gui with -i <video-file>)")
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules)
