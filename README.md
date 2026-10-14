@@ -265,7 +265,6 @@ cmake -S . -B build-vs `
     -Dwith_dc1394=OFF `
     -Dwith_qt_gui=ON `
     -Dwith_video_backend=ON `
-    -Dwith_demos=OFF `
     -Dwith_tests=OFF
 ```
 
