@@ -172,6 +172,7 @@ namespace bias
 
             // Errors
             void startImageCaptureError(unsigned int errorId, QString errorMsg);
+            void videoCaptureFinished();
             void stopImageCaptureError(unsigned int errorId, QString errorMsg);
             void imageCaptureError(unsigned int errorId, QString errorMsg);
             void imageLoggingError(unsigned int errorId, QString errorMsg);
