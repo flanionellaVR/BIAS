@@ -62,6 +62,7 @@ namespace bias {
 
         // read from video instead
         isVideo_ = false;
+        vidObj_ = NULL;
         vidFileName_ = QString("");
         startFrame_ = 0;
         playFps_ = 0.0;
@@ -84,10 +85,20 @@ namespace bias {
     void ImageGrabber::initializeVidBackend()
     {
         printf("Reading from video file %s\n", vidFileName_.toStdString().c_str());
+        delete vidObj_;
         vidObj_ = new videoBackend(vidFileName_);
+        try
+        {
+            vidObj_->checkCapOpen();
+        }
+        catch (RuntimeError&)
+        {
+            delete vidObj_;
+            vidObj_ = NULL;
+            throw;
+        }
         int vid_numFrames = vidObj_->getNumFrames();
         printf("Video has %d frames\n", vid_numFrames);
-        vidObj_->checkCapOpen();
 	}
 
     void ImageGrabber::stop()
@@ -112,6 +123,7 @@ namespace bias {
         bool done = false;
         bool error = false;
         bool errorEmitted = false;
+        bool videoEnded = false;
         unsigned int errorId = 0;
         unsigned int errorCount = 0;
         unsigned long frameCount = 0;
@@ -141,7 +153,15 @@ namespace bias {
 
         // Start image capture
         if (isVideo_) {
-            initializeVidBackend();
+            try
+            {
+                initializeVidBackend();
+            }
+            catch (RuntimeError& runtimeError)
+            {
+                emit startCaptureError(runtimeError.id(), QString::fromStdString(runtimeError.what()));
+                return;
+            }
             if (startFrame_ > 0) {
                 // seek the video and number frames so JSON frame ~ video frame index
                 // (same -2 startup-skip convention as a full run). NB: seeking is only as
@@ -230,7 +250,11 @@ namespace bias {
                 {
                     stampImg.image = vidObj_->grabImage();
                     if (stampImg.image.empty()) {
-                        done = true;
+                        // end of video: request a stop through the same member the loop head reads
+                        acquireLock();
+                        stopped_ = true;
+                        releaseLock();
+                        videoEnded = true;
                     }
                     timeStamp = vidObj_->getImageTimeStamp();
                 }
@@ -375,6 +399,8 @@ namespace bias {
         error = false;
         if (isVideo_) {
             vidObj_->releaseCapObject();
+            delete vidObj_;
+            vidObj_ = NULL;
         }
         else {
             cameraPtr_->acquireLock();
@@ -393,6 +419,10 @@ namespace bias {
         if ((error) && (!errorEmitted))
         { 
             emit stopCaptureError(errorId, errorMsg);
+        }
+        if (videoEnded)
+        {
+            emit videoFinished();
         }
 
     }
