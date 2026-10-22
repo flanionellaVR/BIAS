@@ -2,11 +2,14 @@
 #include <QApplication>
 #include <QSharedPointer>
 #include <QMessageBox>
+#include <QFileInfo>
 #include "camera_window.hpp"
 #include "camera_facade.hpp"
 #include "affinity.hpp"
 #include <iostream>
 #include <cstdio>
+#include <exception>
+#include <memory>
 #include <QCommandLineParser>
 
 #ifdef _WIN32
@@ -14,19 +17,16 @@
 #include <dbghelp.h>
 #include <io.h>
 #include <fcntl.h>
+#pragma comment(lib, "Dbghelp.lib")
 #endif
 
-// ------------------------------------------------------------------------
-// Crash diagnostics (Windows only): everything written to stdout/stderr is
-// also saved to <exe dir>\logs\bias_console_<timestamp>.log, and an
-// unhandled crash writes <exe dir>\logs\crash_<timestamp>.dmp.
-// ------------------------------------------------------------------------
+// Crash diagnostics (Windows only): console output is also saved to
+// <exe dir>\logs\bias_console_*.log; crashes write crash_*.dmp there.
 namespace {
 
 #ifdef _WIN32
 
-    // Resolved once at startup. The crash handler must not touch the heap (it
-    // may be what is corrupted), so it only uses these globals plus the stack.
+    // Globals so the crash handler never needs the heap
     wchar_t g_logDir[MAX_PATH] = L".";
     HANDLE g_logFile = INVALID_HANDLE_VALUE;
     HANDLE g_consoleOut = INVALID_HANDLE_VALUE;
@@ -64,18 +64,15 @@ namespace {
         DWORD n = 0;
         while (ReadFile(g_logPipeRead, buf, sizeof(buf), &n, nullptr) && (n > 0))
         {
-            writeAll(g_consoleOut, buf, n);
+            // File first: a blocked console (e.g. QuickEdit selection) must not stall the log
             writeAll(g_logFile, buf, n);
+            writeAll(g_consoleOut, buf, n);
         }
         return 0;
     }
 
-    // Tees stdout and stderr (file descriptors 1 and 2) into a pipe whose
-    // reader thread copies everything to the original console and to the log
-    // file. Working at the descriptor level captures printf, std::cout,
-    // qDebug/Qt runtime warnings and the camera SDK's own output alike, in
-    // order. Console scrollback is gone once the process crashes, so without
-    // this the output immediately preceding a crash is lost.
+    // Tees stdout/stderr (fds 1 and 2) into a pipe; a reader thread copies it to
+    // the console and the log file
     void installConsoleLogFile()
     {
         SYSTEMTIME st;
@@ -104,14 +101,12 @@ namespace {
             return;
         }
 
-        // Private copy of the original console handle for the reader thread to echo to
         int consoleFd = _dup(_fileno(stdout));
         if (consoleFd != -1)
         {
             g_consoleOut = (HANDLE)_get_osfhandle(consoleFd);
         }
 
-        // Unbuffered so every write reaches the pipe (and the file) immediately
         setvbuf(stdout, nullptr, _IONBF, 0);
         setvbuf(stderr, nullptr, _IONBF, 0);
 
@@ -129,52 +124,24 @@ namespace {
         printf("Logging console output to: %ls\n", logPath);
     }
 
-    // Route Qt's own messages (qDebug/qWarning and Qt's internal runtime
-    // warnings such as cross-thread QObject misuse) to stderr explicitly, so
-    // they land in the log regardless of Qt's console-detection heuristics.
-    void qtMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg)
+    // Kills the process if the crash handler stalls (e.g. deadlocked on the
+    // loader or heap lock); generous so a slow disk can't truncate the dump
+    DWORD WINAPI crashWatchdogThread(LPVOID)
     {
-        const char *prefix = "Qt debug";
-        switch (type)
-        {
-            case QtInfoMsg:     prefix = "Qt info";     break;
-            case QtWarningMsg:  prefix = "Qt warning";  break;
-            case QtCriticalMsg: prefix = "Qt critical"; break;
-            case QtFatalMsg:    prefix = "Qt fatal";    break;
-            default: break;
-        }
-        fprintf(stderr, "%s: %s\n", prefix, qPrintable(msg));
-        if (type == QtFatalMsg)
-        {
-            abort();
-        }
+        Sleep(60000);
+        TerminateProcess(GetCurrentProcess(), 0xDEAD);
+        return 0;
     }
 
-    // Lets the reader thread flush what is still in the pipe so the log ends
-    // with the output that immediately preceded the crash.
-    void waitForLogPipeDrain(DWORD timeoutMs)
-    {
-        if (g_logPipeRead == INVALID_HANDLE_VALUE)
-        {
-            return;
-        }
-        DWORD start = GetTickCount();
-        DWORD avail = 0;
-        while (PeekNamedPipe(g_logPipeRead, nullptr, 0, nullptr, &avail, nullptr)
-                && (avail > 0) && ((GetTickCount() - start) < timeoutMs))
-        {
-            Sleep(1);
-        }
-        Sleep(10);
-    }
-
-    // Writes a crash marker to the log and a minidump on unhandled crashes
-    // (e.g. the access violations seen after long unattended runs) so the
-    // faulting thread/call can be identified in a debugger. Returns
-    // EXCEPTION_CONTINUE_SEARCH so Windows Error Reporting still runs and the
-    // Event Viewer entry is still written.
+    // Returns EXCEPTION_CONTINUE_SEARCH so WER still runs
     LONG WINAPI writeCrashDump(EXCEPTION_POINTERS *exceptionPointers)
     {
+        HANDLE watchdog = CreateThread(nullptr, 0, crashWatchdogThread, nullptr, 0, nullptr);
+        if (watchdog != nullptr)
+        {
+            CloseHandle(watchdog);
+        }
+
         SYSTEMTIME st;
         GetLocalTime(&st);
         wchar_t dumpPath[MAX_PATH];
@@ -184,7 +151,10 @@ namespace {
                 g_logDir, st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
                 );
 
-        waitForLogPipeDrain(500);
+        // Give the reader thread time to flush the pipe. Don't PeekNamedPipe the
+        // read handle: the reader is blocked in a synchronous ReadFile on it, so
+        // the peek would block until the next write
+        Sleep(200);
 
         DWORD code = 0;
         void *addr = nullptr;
@@ -228,8 +198,11 @@ namespace {
                     GetCurrentProcess(),
                     GetCurrentProcessId(),
                     hFile,
-                    (MINIDUMP_TYPE)(MiniDumpWithFullMemory | MiniDumpWithHandleData | MiniDumpWithThreadInfo),
-                    &mdei,
+                    // Stacks, globals and memory they point to: enough to debug an
+                    // access violation without dumping GBs of image buffers
+                    (MINIDUMP_TYPE)(MiniDumpWithDataSegs | MiniDumpWithIndirectlyReferencedMemory
+                        | MiniDumpWithHandleData | MiniDumpWithThreadInfo),
+                    (exceptionPointers != nullptr) ? &mdei : nullptr,
                     nullptr,
                     nullptr
                     );
@@ -238,12 +211,35 @@ namespace {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
+    void terminateHandler()
+    {
+        try
+        {
+            if (std::current_exception())
+            {
+                std::rethrow_exception(std::current_exception());
+            }
+        }
+        catch (std::exception &e)
+        {
+            fprintf(stderr, "std::terminate: uncaught exception: %s\n", e.what());
+        }
+        catch (...)
+        {
+            fprintf(stderr, "std::terminate: uncaught non-standard exception\n");
+        }
+        writeCrashDump(nullptr);
+        abort();
+    }
+
     void installCrashDiagnostics()
     {
         initLogDir();
         installConsoleLogFile();
-        qInstallMessageHandler(qtMessageHandler);
+        // Qt then writes its messages to stderr, so they reach the log
+        qputenv("QT_FORCE_STDERR_LOGGING", "1");
         SetUnhandledExceptionFilter(writeCrashDump);
+        std::set_terminate(terminateHandler);
     }
 
 #else
@@ -251,6 +247,25 @@ namespace {
     void installCrashDiagnostics() {}
 
 #endif
+
+    int startupError(const QString &msgTitle, const QString &msgText)
+    {
+        fprintf(stderr, "%s\n", qPrintable(msgText));
+        QMessageBox::critical(0, msgTitle, msgText);
+        return 1;
+    }
+
+    int startupError(const QString &msgTitle, const QString &msgText, std::exception &e)
+    {
+        QString text = msgText + QString(":\n\n");
+        bias::RuntimeError *runtimeError = dynamic_cast<bias::RuntimeError *>(&e);
+        if (runtimeError != nullptr)
+        {
+            text += QString("Error ID: %1\n\n").arg(runtimeError->id());
+        }
+        text += QString::fromStdString(e.what());
+        return startupError(msgTitle, text);
+    }
 
 } // anonymous namespace
 
@@ -321,11 +336,21 @@ int main (int argc, char *argv[])
 
 
     bias::GuidList guidList;
-    bias::CameraFinder cameraFinder;
+    // Declared before the windows so it outlives them: it holds the camera SDK
+    // system instances (e.g. Spinnaker), which would otherwise be torn down
+    // and re-created when the cameras open
+    std::unique_ptr<bias::CameraFinder> cameraFinderPtr;
     std::list<QSharedPointer<bias::CameraWindow>> windowPtrList;
 
     if (!params.inVideoFile.isEmpty())
     {
+        if (!QFileInfo::exists(params.inVideoFile))
+        {
+            return startupError(
+                    QString("Input Video Error"),
+                    QString("Input video file does not exist:\n\n%1").arg(params.inVideoFile)
+                    );
+        }
         // Video-input mode: no physical camera. Use a single placeholder guid so one
         // CameraWindow is created; it captures from the input video instead of a camera.
         guidList.push_back(bias::Guid());
@@ -335,26 +360,18 @@ int main (int argc, char *argv[])
         // Get list guids for all cameras found
         try
         {
-            guidList = cameraFinder.getGuidList();
+            cameraFinderPtr.reset(new bias::CameraFinder());
+            guidList = cameraFinderPtr -> getGuidList();
         }
-        catch (bias::RuntimeError &runtimeError)
+        catch (std::exception &e)
         {
-            QString msgTitle("Camera Enumeration Error");
-            QString msgText("Camera enumeration failed:\n\nError ID: ");
-            msgText += QString::number(runtimeError.id());
-            msgText += QString("\n\n");
-            msgText += QString::fromStdString(runtimeError.what());
-            QMessageBox::critical(0, msgTitle,msgText);
-            return 0;
+            return startupError(QString("Camera Enumeration Error"), QString("Camera enumeration failed"), e);
         }
 
         // If no cameras found - error
         if (guidList.empty())
         {
-            QString msgTitle("Camera Enumeration Error");
-            QString msgText("No cameras found");
-            QMessageBox::critical(0, msgTitle,msgText);
-            return 0;
+            return startupError(QString("Camera Enumeration Error"), QString("No cameras found"));
         }
     }
 
@@ -362,29 +379,36 @@ int main (int argc, char *argv[])
     unsigned int numCam = guidList.size();
     bias::ThreadAffinityService::setNumberOfCameras(numCam);
 
-    // Open camera window for each camera 
-    QRect baseGeom;
-    QRect nextGeom;
-    unsigned int camCnt;
-    bias::GuidList::iterator guidIt;
-    for (guidIt=guidList.begin(), camCnt=0; guidIt!=guidList.end(); guidIt++, camCnt++)
+    try
     {
-        bias::Guid guid = *guidIt;
-        QSharedPointer<bias::CameraWindow> windowPtr(new bias::CameraWindow(guid, camCnt, numCam, params));
-        windowPtr -> show();
-        if (camCnt==0)
+        // Open camera window for each camera 
+        QRect baseGeom;
+        QRect nextGeom;
+        unsigned int camCnt;
+        bias::GuidList::iterator guidIt;
+        for (guidIt=guidList.begin(), camCnt=0; guidIt!=guidList.end(); guidIt++, camCnt++)
         {
-            baseGeom = windowPtr -> geometry();
+            bias::Guid guid = *guidIt;
+            QSharedPointer<bias::CameraWindow> windowPtr(new bias::CameraWindow(guid, camCnt, numCam, params));
+            windowPtr -> show();
+            if (camCnt==0)
+            {
+                baseGeom = windowPtr -> geometry();
+            }
+            else
+            {
+                nextGeom.setX(baseGeom.x() + 40*camCnt);
+                nextGeom.setY(baseGeom.y() + 40*camCnt);
+                nextGeom.setWidth(baseGeom.width());
+                nextGeom.setHeight(baseGeom.height());
+                windowPtr -> setGeometry(nextGeom);
+            }
+            windowPtrList.push_back(windowPtr);
         }
-        else
-        {
-            nextGeom.setX(baseGeom.x() + 40*camCnt);
-            nextGeom.setY(baseGeom.y() + 40*camCnt);
-            nextGeom.setWidth(baseGeom.width());
-            nextGeom.setHeight(baseGeom.height());
-            windowPtr -> setGeometry(nextGeom);
-        }
-        windowPtrList.push_back(windowPtr);
+    }
+    catch (std::exception &e)
+    {
+        return startupError(QString("Camera Window Error"), QString("Failed to open camera window"), e);
     }
     return app.exec();
 }

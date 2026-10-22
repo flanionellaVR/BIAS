@@ -162,6 +162,13 @@ namespace bias {
                 errorId = runtimeError.id();
                 errorMsg = QString::fromStdString(runtimeError.what());
             }
+            catch (std::exception& e)
+            {
+                std::cout << "Unexpected exception in startCapture, camera " << cameraNumber_ << ": " << e.what() << std::endl;
+                error = true;
+                errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
+                errorMsg = QString("Unexpected exception in startCapture: ") + QString::fromStdString(e.what());
+            }
             catch (...)
             {
                 std::cout << "Unexpected exception in startCapture, camera " << cameraNumber_ << std::endl;
@@ -269,6 +276,11 @@ namespace bias {
 					std::cout << runtimeError.what() << std::endl;
 					error = true;
 				}
+				catch (std::exception& e)
+				{
+					std::cout << "Unexpected exception during video frame grab: " << e.what() << std::endl;
+					error = true;
+				}
 				catch (...)
 				{
 					std::cout << "Unexpected exception during video frame grab" << std::endl;
@@ -286,6 +298,11 @@ namespace bias {
                     std::cout << "Frame grab error: id = ";
                     std::cout << runtimeError.id() << ", what = ";
                     std::cout << runtimeError.what() << std::endl;
+                    error = true;
+                }
+                catch (std::exception& e)
+                {
+                    std::cout << "Unexpected exception during frame grab, camera " << cameraNumber_ << ": " << e.what() << std::endl;
                     error = true;
                 }
                 catch (...)
@@ -425,6 +442,13 @@ namespace bias {
                 error = true;
                 errorId = runtimeError.id();
                 errorMsg = QString::fromStdString(runtimeError.what());
+            }
+            catch (std::exception& e)
+            {
+                std::cout << "Unexpected exception in stopCapture, camera " << cameraNumber_ << ": " << e.what() << std::endl;
+                error = true;
+                errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
+                errorMsg = QString("Unexpected exception in stopCapture: ") + QString::fromStdString(e.what());
             }
             catch (...)
             {
