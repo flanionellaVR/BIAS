@@ -25,6 +25,7 @@
 #include "json_utils.hpp"
 #include "ext_ctl_http_server.hpp"
 #include "plugin_handler.hpp"
+#include "bias_version.h"
 
 //#include <cstdlib>
 #include <cmath>
@@ -127,6 +128,9 @@ namespace bias
 
     // Debug files
     const QString DEBUG_DUMP_CAMERA_PROPS_FILE_NAME("bias_camera_props_dump.txt");
+
+    // Definition of CameraWindow::spinnakerVersionString (declared in camera_window.hpp)
+    QString CameraWindow::spinnakerVersionString = QString("N/A");
 
     // Public methods
     // ----------------------------------------------------------------------------------
@@ -516,6 +520,13 @@ namespace bias
                 SIGNAL(startCaptureError(unsigned int, QString)),
                 this,
                 SLOT(startImageCaptureError(unsigned int, QString))
+               );
+
+        connect(
+                imageGrabberPtr_,
+                SIGNAL(videoFinished()),
+                this,
+                SLOT(videoCaptureFinished())
                );
 
         connect(
@@ -1968,6 +1979,17 @@ namespace bias
     }
 
 
+    void CameraWindow::videoCaptureFinished()
+    {
+        // The grabber stopped by itself at the end of the video; bring the GUI back
+        // to the stopped state the same way the Stop button does.
+        if (capturing_)
+        {
+            stopImageCapture();
+        }
+    }
+
+
     void CameraWindow::stopImageCaptureError(unsigned int errorId, QString errorMsg)
     {
         QString msgTitle("Stop Image Capture Error");
@@ -2546,8 +2568,13 @@ namespace bias
 
     void CameraWindow::actionHelpAboutTriggered()
     {
-        QString msgTitle("Development");
-        QString msgText("About not fully implemented");
+        QString msgTitle("About BIAS");
+        QString msgText("BIAS version ");
+        msgText += BIAS_VERSION;
+        msgText += "\nOpenCV version ";
+        msgText += CV_VERSION;
+        msgText += "\nSpinnaker version ";
+        msgText += spinnakerVersionString;
         QMessageBox::information(this, msgTitle, msgText);
     }
 

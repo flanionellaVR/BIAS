@@ -55,6 +55,7 @@ namespace bias
             void startCaptureError(unsigned int errorId, QString errorMsg);
             void stopCaptureError(unsigned int errorId, QString errorMsg);
             void captureError(unsigned int errorId, QString errorMsg);
+            void videoFinished();
 
         private:
             bool ready_;

@@ -285,7 +285,7 @@ namespace bias
                 socketPtr -> close();
                 if (socketPtr -> state() == QTcpSocket::UnconnectedState)
                 {
-                    delete socketPtr;
+                    socketPtr -> deleteLater();
                 }
                 return;
             }

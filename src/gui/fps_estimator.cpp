@@ -4,8 +4,6 @@
 #include <limits>
 #include <iostream>
 
-#pragma warning(default:4716)
-
 namespace bias
 {
 
@@ -28,10 +26,10 @@ namespace bias
     double FPS_Estimator::setCutOffFreq(double freq)
     {
         cutOffFreq_ = freq;
-
+        return cutOffFreq_;
     }
 
-    void FPS_Estimator::update(double timeNew) 
+    void FPS_Estimator::update(double timeNew)
     {
         if (!isFirst_) 
         {

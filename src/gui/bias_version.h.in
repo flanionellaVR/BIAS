@@ -1,0 +1,6 @@
+#ifndef BIAS_VERSION_H
+#define BIAS_VERSION_H
+
+#define BIAS_VERSION "@BIAS_VERSION@"
+
+#endif
