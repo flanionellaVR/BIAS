@@ -17,11 +17,18 @@
 #include <dbghelp.h>
 #include <io.h>
 #include <fcntl.h>
+#include <intrin.h>
+#include <csignal>
+#include <cstdlib>
 #pragma comment(lib, "Dbghelp.lib")
 #endif
 
-// Crash diagnostics (Windows only): console output is also saved to
-// <exe dir>\logs\bias_console_*.log; crashes write crash_*.dmp there.
+// ------------------------------------------------------------------------
+// Crash diagnostics (Windows only): everything written to stdout/stderr is
+// also saved to <exe dir>\logs\bias_console_<timestamp>.log, and an
+// unhandled exception or CRT error (abort, std::terminate, pure virtual
+// call, invalid CRT parameter) writes <exe dir>\logs\crash_<timestamp>.dmp.
+// ------------------------------------------------------------------------
 namespace {
 
 #ifdef _WIN32
@@ -31,6 +38,17 @@ namespace {
     HANDLE g_logFile = INVALID_HANDLE_VALUE;
     HANDLE g_consoleOut = INVALID_HANDLE_VALUE;
     HANDLE g_logPipeRead = INVALID_HANDLE_VALUE;
+    HANDLE g_logPipeWrite = INVALID_HANDLE_VALUE;
+
+    // Id of the thread that is reporting a crash, 0 while none is
+    volatile LONG g_crashThreadId = 0;
+
+    // Exception codes (customer bit set, "B1A5") that identify the CRT error
+    // path in the minidump
+    const DWORD CRASH_CODE_ABORT = 0xE0B1A501;
+    const DWORD CRASH_CODE_TERMINATE = 0xE0B1A502;
+    const DWORD CRASH_CODE_PURE_CALL = 0xE0B1A503;
+    const DWORD CRASH_CODE_INVALID_PARAMETER = 0xE0B1A504;
 
     void initLogDir()
     {
@@ -114,6 +132,7 @@ namespace {
         _dup2(pipeWriteFd, _fileno(stdout));
         _dup2(pipeWriteFd, _fileno(stderr));
         _close(pipeWriteFd);
+        g_logPipeWrite = (HANDLE)_get_osfhandle(_fileno(stderr));
 
         HANDLE thread = CreateThread(nullptr, 0, logReaderThread, nullptr, 0, nullptr);
         if (thread != nullptr)
@@ -133,9 +152,35 @@ namespace {
         return 0;
     }
 
-    // Returns EXCEPTION_CONTINUE_SEARCH so WER still runs
-    LONG WINAPI writeCrashDump(EXCEPTION_POINTERS *exceptionPointers)
+    // Marks this thread as the one reporting the crash. Returns false if it
+    // already is (e.g. std::terminate followed by its abort()). Any other
+    // thread that crashes meanwhile parks here until the process is gone, so
+    // it cannot end the process halfway through the first thread's dump.
+    bool beginCrashReport()
     {
+        LONG self = (LONG)GetCurrentThreadId();
+        LONG owner = InterlockedCompareExchange(&g_crashThreadId, self, 0);
+        if (owner == 0)
+        {
+            return true;
+        }
+        if (owner != self)
+        {
+            Sleep(INFINITE);
+        }
+        return false;
+    }
+
+    // Writes a crash marker to the console and the log, and a minidump, so
+    // the faulting thread/call can be identified in a debugger. reason is
+    // nullptr for an unhandled exception, otherwise it names the CRT error.
+    void reportCrash(EXCEPTION_POINTERS *exceptionPointers, const char *reason)
+    {
+        if (!beginCrashReport())
+        {
+            return;
+        }
+
         HANDLE watchdog = CreateThread(nullptr, 0, crashWatchdogThread, nullptr, 0, nullptr);
         if (watchdog != nullptr)
         {
@@ -151,37 +196,59 @@ namespace {
                 g_logDir, st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
                 );
 
-        // Give the reader thread time to flush the pipe. Don't PeekNamedPipe the
-        // read handle: the reader is blocked in a synchronous ReadFile on it, so
-        // the peek would block until the next write
-        Sleep(200);
-
-        DWORD code = 0;
-        void *addr = nullptr;
-        if ((exceptionPointers != nullptr) && (exceptionPointers->ExceptionRecord != nullptr))
-        {
-            code = exceptionPointers->ExceptionRecord->ExceptionCode;
-            addr = exceptionPointers->ExceptionRecord->ExceptionAddress;
-        }
-        wchar_t modulePath[MAX_PATH] = L"?";
-        uintptr_t moduleOffset = 0;
-        HMODULE module = nullptr;
-        if (GetModuleHandleExW(
-                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                    (LPCWSTR)addr, &module))
-        {
-            GetModuleFileNameW(module, modulePath, MAX_PATH);
-            moduleOffset = (uintptr_t)addr - (uintptr_t)module;
-        }
         char marker[1024];
-        int len = sprintf_s(
-                marker,
-                "\r\nCRASH: unhandled exception 0x%08lX in thread %lu at %p (%ls + 0x%llX), see %ls\r\n",
-                code, GetCurrentThreadId(), addr, modulePath, (unsigned long long)moduleOffset, dumpPath
-                );
-        if (len > 0)
+        int len = 0;
+        if (reason != nullptr)
         {
-            writeAll(g_logFile, marker, (DWORD)len);
+            len = sprintf_s(
+                    marker,
+                    "\r\nCRASH: %s in thread %lu, see %ls\r\n",
+                    reason, GetCurrentThreadId(), dumpPath
+                    );
+        }
+        else
+        {
+            DWORD code = 0;
+            void *addr = nullptr;
+            if ((exceptionPointers != nullptr) && (exceptionPointers->ExceptionRecord != nullptr))
+            {
+                code = exceptionPointers->ExceptionRecord->ExceptionCode;
+                addr = exceptionPointers->ExceptionRecord->ExceptionAddress;
+            }
+            wchar_t modulePath[MAX_PATH] = L"?";
+            uintptr_t moduleOffset = 0;
+            HMODULE module = nullptr;
+            if (GetModuleHandleExW(
+                        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                        (LPCWSTR)addr, &module))
+            {
+                GetModuleFileNameW(module, modulePath, MAX_PATH);
+                moduleOffset = (uintptr_t)addr - (uintptr_t)module;
+            }
+            len = sprintf_s(
+                    marker,
+                    "\r\nCRASH: unhandled exception 0x%08lX in thread %lu at %p (%ls + 0x%llX), see %ls\r\n",
+                    code, GetCurrentThreadId(), addr, modulePath, (unsigned long long)moduleOffset, dumpPath
+                    );
+        }
+
+        if (g_logPipeWrite != INVALID_HANDLE_VALUE)
+        {
+            // Through the pipe, so the marker follows all earlier output in
+            // both the console and the log file. The reader thread is still
+            // running and copies it within milliseconds; give it time to do
+            // so. Do not wait with PeekNamedPipe: the pipe handle is
+            // synchronous, so a peek queues behind the reader's blocked
+            // ReadFile and never returns.
+            if (len > 0)
+            {
+                writeAll(g_logPipeWrite, marker, (DWORD)len);
+            }
+            Sleep(200);
+        }
+        else if (len > 0)
+        {
+            writeAll(GetStdHandle(STD_ERROR_HANDLE), marker, (DWORD)len);
         }
 
         HANDLE hFile = CreateFileW(
@@ -208,28 +275,63 @@ namespace {
                     );
             CloseHandle(hFile);
         }
+    }
+
+    // Unhandled exception filter, e.g. for the access violations seen after
+    // long unattended runs. Returns EXCEPTION_CONTINUE_SEARCH so Windows
+    // Error Reporting still runs and the Event Viewer entry is still written.
+    LONG WINAPI writeCrashDump(EXCEPTION_POINTERS *exceptionPointers)
+    {
+        reportCrash(exceptionPointers, nullptr);
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
-    void terminateHandler()
+    // Raises and catches an exception so reportCrash gets exception pointers
+    // holding this thread's context, and the dump shows the stack of the CRT
+    // error. Must not hold C++ objects because of __try.
+    void reportCrtError(DWORD code, const char *reason)
     {
-        try
+        __try
         {
-            if (std::current_exception())
-            {
-                std::rethrow_exception(std::current_exception());
-            }
+            RaiseException(code, EXCEPTION_NONCONTINUABLE, 0, nullptr);
         }
-        catch (std::exception &e)
+        __except (reportCrash(GetExceptionInformation(), reason), EXCEPTION_EXECUTE_HANDLER)
         {
-            fprintf(stderr, "std::terminate: uncaught exception: %s\n", e.what());
         }
-        catch (...)
-        {
-            fprintf(stderr, "std::terminate: uncaught non-standard exception\n");
-        }
-        writeCrashDump(nullptr);
+    }
+
+    // The handlers below cover CRT error paths that end the process without
+    // reaching the unhandled exception filter.
+
+    // abort() (also reached from qFatal, std::terminate and pure virtual
+    // calls) fast-fails straight into Windows Error Reporting once this
+    // handler returns.
+    void __cdecl onAbortSignal(int)
+    {
+        reportCrtError(CRASH_CODE_ABORT, "abort() called");
+    }
+
+    // std::set_terminate is per thread in the MSVC runtime, so this only
+    // labels std::terminate on the main thread. On other threads it still
+    // ends in abort() and onAbortSignal.
+    void onTerminate()
+    {
+        reportCrtError(CRASH_CODE_TERMINATE, "std::terminate called");
         abort();
+    }
+
+    void __cdecl onPureCall()
+    {
+        reportCrtError(CRASH_CODE_PURE_CALL, "pure virtual function call");
+        abort();
+    }
+
+    // Keeps the default behavior of fast-failing after the report
+    void __cdecl onInvalidParameter(
+            const wchar_t *, const wchar_t *, const wchar_t *, unsigned int, uintptr_t)
+    {
+        reportCrtError(CRASH_CODE_INVALID_PARAMETER, "invalid parameter passed to a CRT function");
+        __fastfail(FAST_FAIL_INVALID_ARG);
     }
 
     void installCrashDiagnostics()
@@ -239,7 +341,10 @@ namespace {
         // Qt then writes its messages to stderr, so they reach the log
         qputenv("QT_FORCE_STDERR_LOGGING", "1");
         SetUnhandledExceptionFilter(writeCrashDump);
-        std::set_terminate(terminateHandler);
+        signal(SIGABRT, onAbortSignal);
+        std::set_terminate(onTerminate);
+        _set_purecall_handler(onPureCall);
+        _set_invalid_parameter_handler(onInvalidParameter);
     }
 
 #else
