@@ -194,6 +194,7 @@ namespace bias {
         ERROR_SPIN_SET_TRIGGER_EXTERNAL,
         ERROR_SPIN_SET_TRIGGER_INTERNAL,
         ERROR_SPIN_GET_TRIGGER_TYPE,
+        ERROR_SPIN_GET_LIBRARY_VERSION,
 
         // Video Writer Errors
         ERROR_VIDEO_WRITER_ADD_FRAME,
@@ -209,6 +210,9 @@ namespace bias {
         ERROR_CAPTURE_MAX_ERROR_COUNT,
         ERROR_CAPTURE_UNEXPECTED_EXCEPTION,
 
+        // Video Backend Errors
+        ERROR_VIDEO_OPEN,
+        
         NUMBER_OF_ERROR,
     }; 
 

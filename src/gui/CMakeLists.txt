@@ -90,8 +90,16 @@ set(
     plugin_handler.cpp
     )
 
-qt5_wrap_ui(bias_gui_FORMS_HEADERS ${bias_gui_FORMS}) 
+qt5_wrap_ui(bias_gui_FORMS_HEADERS ${bias_gui_FORMS})
 qt5_wrap_cpp(bias_gui_HEADERS_MOC ${bias_gui_HEADERS})
+
+# Embed the version string from version.txt into a generated header
+# -----------------------------------------------------------------------------
+file(STRINGS "${CMAKE_SOURCE_DIR}/version.txt" BIAS_VERSION LIMIT_COUNT 1)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/bias_version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/bias_version.h
+    )
 
 add_executable(
     test_gui 

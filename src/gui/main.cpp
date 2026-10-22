@@ -368,6 +368,18 @@ int main (int argc, char *argv[])
             return startupError(QString("Camera Enumeration Error"), QString("Camera enumeration failed"), e);
         }
 
+        // Query the Spinnaker library version once for the About dialog; not fatal if it fails.
+        // Video-input runs don't load Spinnaker, so the dialog keeps its default "N/A".
+        try
+        {
+            bias::CameraWindow::spinnakerVersionString =
+                QString::fromStdString(cameraFinderPtr -> getSpinnakerVersionString());
+        }
+        catch (bias::RuntimeError &runtimeError)
+        {
+            std::cerr << "Unable to get Spinnaker library version: " << runtimeError.what() << std::endl;
+        }
+
         // If no cameras found - error
         if (guidList.empty())
         {

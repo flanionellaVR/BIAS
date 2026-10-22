@@ -38,6 +38,8 @@ namespace bias {
             std::string getGuidListAsString();
             void printGuid();
 
+            std::string getSpinnakerVersionString();
+
         private:
             GuidSet guidSet_;
             
