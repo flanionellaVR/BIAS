@@ -20,7 +20,6 @@
 #include <intrin.h>
 #include <csignal>
 #include <cstdlib>
-#pragma comment(lib, "Dbghelp.lib")
 #endif
 
 // ------------------------------------------------------------------------
@@ -67,7 +66,19 @@ namespace {
         CreateDirectoryW(g_logDir, nullptr);
     }
 
-    void writeAll(HANDLE h, const char *buf, DWORD n)
+    // <log dir>\<prefix>_<local timestamp>.<ext>, without using the heap
+    void makeTimestampedPath(wchar_t (&path)[MAX_PATH], const wchar_t *prefix, const wchar_t *ext)
+    {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        swprintf_s(
+                path,
+                L"%s\\%s_%04d%02d%02d_%02d%02d%02d.%s",
+                g_logDir, prefix, st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, ext
+                );
+    }
+
+    void writeHandle(HANDLE h, const char *buf, DWORD n)
     {
         DWORD written = 0;
         if (h != INVALID_HANDLE_VALUE)
@@ -76,15 +87,16 @@ namespace {
         }
     }
 
+    // Writes to the log file before the console, so a blocked console (e.g.
+    // QuickEdit selection) does not stall the log
     DWORD WINAPI logReaderThread(LPVOID)
     {
         char buf[4096];
         DWORD n = 0;
         while (ReadFile(g_logPipeRead, buf, sizeof(buf), &n, nullptr) && (n > 0))
         {
-            // File first: a blocked console (e.g. QuickEdit selection) must not stall the log
-            writeAll(g_logFile, buf, n);
-            writeAll(g_consoleOut, buf, n);
+            writeHandle(g_logFile, buf, n);
+            writeHandle(g_consoleOut, buf, n);
         }
         return 0;
     }
@@ -93,14 +105,8 @@ namespace {
     // the console and the log file
     void installConsoleLogFile()
     {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
         wchar_t logPath[MAX_PATH];
-        swprintf_s(
-                logPath,
-                L"%s\\bias_console_%04d%02d%02d_%02d%02d%02d.log",
-                g_logDir, st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
-                );
+        makeTimestampedPath(logPath, L"bias_console", L"log");
 
         g_logFile = CreateFileW(
                 logPath, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
@@ -174,6 +180,10 @@ namespace {
     // Writes a crash marker to the console and the log, and a minidump, so
     // the faulting thread/call can be identified in a debugger. reason is
     // nullptr for an unhandled exception, otherwise it names the CRT error.
+    // The marker goes through the log pipe so it follows all earlier output;
+    // the pause after it lets the reader thread copy it. Do not wait with
+    // PeekNamedPipe instead: the pipe handle is synchronous, so a peek queues
+    // behind the reader's blocked ReadFile and never returns.
     void reportCrash(EXCEPTION_POINTERS *exceptionPointers, const char *reason)
     {
         if (!beginCrashReport())
@@ -187,14 +197,8 @@ namespace {
             CloseHandle(watchdog);
         }
 
-        SYSTEMTIME st;
-        GetLocalTime(&st);
         wchar_t dumpPath[MAX_PATH];
-        swprintf_s(
-                dumpPath,
-                L"%s\\crash_%04d%02d%02d_%02d%02d%02d.dmp",
-                g_logDir, st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond
-                );
+        makeTimestampedPath(dumpPath, L"crash", L"dmp");
 
         char marker[1024];
         int len = 0;
@@ -234,21 +238,15 @@ namespace {
 
         if (g_logPipeWrite != INVALID_HANDLE_VALUE)
         {
-            // Through the pipe, so the marker follows all earlier output in
-            // both the console and the log file. The reader thread is still
-            // running and copies it within milliseconds; give it time to do
-            // so. Do not wait with PeekNamedPipe: the pipe handle is
-            // synchronous, so a peek queues behind the reader's blocked
-            // ReadFile and never returns.
             if (len > 0)
             {
-                writeAll(g_logPipeWrite, marker, (DWORD)len);
+                writeHandle(g_logPipeWrite, marker, (DWORD)len);
             }
             Sleep(200);
         }
         else if (len > 0)
         {
-            writeAll(GetStdHandle(STD_ERROR_HANDLE), marker, (DWORD)len);
+            writeHandle(GetStdHandle(STD_ERROR_HANDLE), marker, (DWORD)len);
         }
 
         HANDLE hFile = CreateFileW(
@@ -265,8 +263,6 @@ namespace {
                     GetCurrentProcess(),
                     GetCurrentProcessId(),
                     hFile,
-                    // Stacks, globals and memory they point to: enough to debug an
-                    // access violation without dumping GBs of image buffers
                     (MINIDUMP_TYPE)(MiniDumpWithDataSegs | MiniDumpWithIndirectlyReferencedMemory
                         | MiniDumpWithHandleData | MiniDumpWithThreadInfo),
                     (exceptionPointers != nullptr) ? &mdei : nullptr,
@@ -338,7 +334,6 @@ namespace {
     {
         initLogDir();
         installConsoleLogFile();
-        // Qt then writes its messages to stderr, so they reach the log
         qputenv("QT_FORCE_STDERR_LOGGING", "1");
         SetUnhandledExceptionFilter(writeCrashDump);
         signal(SIGABRT, onAbortSignal);
@@ -387,7 +382,7 @@ int main (int argc, char *argv[])
     cv::setNumThreads(4);
 
     QApplication app(argc, argv);
-
+   
     QCoreApplication::setApplicationName("BIAS");
 
     QCommandLineParser parser;
@@ -441,9 +436,6 @@ int main (int argc, char *argv[])
 
 
     bias::GuidList guidList;
-    // Declared before the windows so it outlives them: it holds the camera SDK
-    // system instances (e.g. Spinnaker), which would otherwise be torn down
-    // and re-created when the cameras open
     std::unique_ptr<bias::CameraFinder> cameraFinderPtr;
     std::list<QSharedPointer<bias::CameraWindow>> windowPtrList;
 
@@ -474,7 +466,6 @@ int main (int argc, char *argv[])
         }
 
         // Query the Spinnaker library version once for the About dialog; not fatal if it fails.
-        // Video-input runs don't load Spinnaker, so the dialog keeps its default "N/A".
         try
         {
             bias::CameraWindow::spinnakerVersionString =
@@ -496,36 +487,37 @@ int main (int argc, char *argv[])
     unsigned int numCam = guidList.size();
     bias::ThreadAffinityService::setNumberOfCameras(numCam);
 
-    try
+    // Open camera window for each camera 
+    QRect baseGeom;
+    QRect nextGeom;
+    unsigned int camCnt;
+    bias::GuidList::iterator guidIt;
+    for (guidIt=guidList.begin(), camCnt=0; guidIt!=guidList.end(); guidIt++, camCnt++)
     {
-        // Open camera window for each camera 
-        QRect baseGeom;
-        QRect nextGeom;
-        unsigned int camCnt;
-        bias::GuidList::iterator guidIt;
-        for (guidIt=guidList.begin(), camCnt=0; guidIt!=guidList.end(); guidIt++, camCnt++)
+        bias::Guid guid = *guidIt;
+        QSharedPointer<bias::CameraWindow> windowPtr;
+        try
         {
-            bias::Guid guid = *guidIt;
-            QSharedPointer<bias::CameraWindow> windowPtr(new bias::CameraWindow(guid, camCnt, numCam, params));
-            windowPtr -> show();
-            if (camCnt==0)
-            {
-                baseGeom = windowPtr -> geometry();
-            }
-            else
-            {
-                nextGeom.setX(baseGeom.x() + 40*camCnt);
-                nextGeom.setY(baseGeom.y() + 40*camCnt);
-                nextGeom.setWidth(baseGeom.width());
-                nextGeom.setHeight(baseGeom.height());
-                windowPtr -> setGeometry(nextGeom);
-            }
-            windowPtrList.push_back(windowPtr);
+            windowPtr.reset(new bias::CameraWindow(guid, camCnt, numCam, params));
         }
-    }
-    catch (std::exception &e)
-    {
-        return startupError(QString("Camera Window Error"), QString("Failed to open camera window"), e);
+        catch (std::exception &e)
+        {
+            return startupError(QString("Camera Window Error"), QString("Failed to open camera window"), e);
+        }
+        windowPtr -> show();
+        if (camCnt==0)
+        {
+            baseGeom = windowPtr -> geometry();
+        }
+        else
+        {
+            nextGeom.setX(baseGeom.x() + 40*camCnt);
+            nextGeom.setY(baseGeom.y() + 40*camCnt);
+            nextGeom.setWidth(baseGeom.width());
+            nextGeom.setHeight(baseGeom.height());
+            windowPtr -> setGeometry(nextGeom);
+        }
+        windowPtrList.push_back(windowPtr);
     }
     return app.exec();
 }

@@ -19,6 +19,14 @@
 
 namespace bias {
 
+    // Message of the exception being handled; call only from a catch block
+    static QString currentExceptionMessage()
+    {
+        try { throw; }
+        catch (std::exception &e) { return QString::fromStdString(e.what()); }
+        catch (...) { return QString("unknown exception"); }
+    }
+
     unsigned int ImageGrabber::DEFAULT_NUM_STARTUP_SKIP = 2;
     unsigned int ImageGrabber::MIN_STARTUP_SKIP = 1;
     unsigned int ImageGrabber::MAX_ERROR_COUNT = 500;
@@ -182,19 +190,12 @@ namespace bias {
                 errorId = runtimeError.id();
                 errorMsg = QString::fromStdString(runtimeError.what());
             }
-            catch (std::exception& e)
-            {
-                std::cout << "Unexpected exception in startCapture, camera " << cameraNumber_ << ": " << e.what() << std::endl;
-                error = true;
-                errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
-                errorMsg = QString("Unexpected exception in startCapture: ") + QString::fromStdString(e.what());
-            }
             catch (...)
             {
-                std::cout << "Unexpected exception in startCapture, camera " << cameraNumber_ << std::endl;
                 error = true;
                 errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
-                errorMsg = QString("Unexpected exception in startCapture");
+                errorMsg = QString("Unexpected exception in startCapture: ") + currentExceptionMessage();
+                std::cout << errorMsg.toStdString() << ", camera " << cameraNumber_ << std::endl;
             }
             cameraPtr_->releaseLock();
 
@@ -240,8 +241,6 @@ namespace bias {
         double playNextMs = 0.0;
         if (isVideo_ && playFps_ > 0.0) { playTimer.start(); }
 
-        // Heartbeat: periodically log this camera's frame count so a stalled/crashed
-        // run can be correlated against the last time frames were actually arriving.
         QElapsedTimer heartbeatTimer;
         heartbeatTimer.start();
         const qint64 heartbeatIntervalMs = 30000;
@@ -254,8 +253,6 @@ namespace bias {
             done = stopped_;
             releaseLock();
 
-            // Errors are per-frame: a successful grab after a failed one must
-            // resume pushing frames and reset errorCount below.
             error = false;
 
             if (heartbeatTimer.elapsed() >= heartbeatIntervalMs)
@@ -300,14 +297,9 @@ namespace bias {
 					std::cout << runtimeError.what() << std::endl;
 					error = true;
 				}
-				catch (std::exception& e)
-				{
-					std::cout << "Unexpected exception during video frame grab: " << e.what() << std::endl;
-					error = true;
-				}
 				catch (...)
 				{
-					std::cout << "Unexpected exception during video frame grab" << std::endl;
+					std::cout << "Unexpected exception during video frame grab: " << currentExceptionMessage().toStdString() << std::endl;
 					error = true;
 				}
             }
@@ -324,14 +316,9 @@ namespace bias {
                     std::cout << runtimeError.what() << std::endl;
                     error = true;
                 }
-                catch (std::exception& e)
-                {
-                    std::cout << "Unexpected exception during frame grab, camera " << cameraNumber_ << ": " << e.what() << std::endl;
-                    error = true;
-                }
                 catch (...)
                 {
-                    std::cout << "Unexpected exception during frame grab, camera " << cameraNumber_ << std::endl;
+                    std::cout << "Unexpected exception during frame grab, camera " << cameraNumber_ << ": " << currentExceptionMessage().toStdString() << std::endl;
                     error = true;
                 }
             }
@@ -469,19 +456,12 @@ namespace bias {
                 errorId = runtimeError.id();
                 errorMsg = QString::fromStdString(runtimeError.what());
             }
-            catch (std::exception& e)
-            {
-                std::cout << "Unexpected exception in stopCapture, camera " << cameraNumber_ << ": " << e.what() << std::endl;
-                error = true;
-                errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
-                errorMsg = QString("Unexpected exception in stopCapture: ") + QString::fromStdString(e.what());
-            }
             catch (...)
             {
-                std::cout << "Unexpected exception in stopCapture, camera " << cameraNumber_ << std::endl;
                 error = true;
                 errorId = ERROR_CAPTURE_UNEXPECTED_EXCEPTION;
-                errorMsg = QString("Unexpected exception in stopCapture");
+                errorMsg = QString("Unexpected exception in stopCapture: ") + currentExceptionMessage();
+                std::cout << errorMsg.toStdString() << ", camera " << cameraNumber_ << std::endl;
             }
             cameraPtr_->releaseLock();
         }
