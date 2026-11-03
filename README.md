@@ -178,7 +178,7 @@ The reference polling client is `tools/stress_test_bias.py` (next section); it u
 
 ### Stress testing the tracking endpoint
 
-`tools/stress_test_bias.py` polls a FlyTrack track command as hard as it can and reports dropped frames, empty polls, request latency and hangs. It needs `pip install requests` and a running BIAS window with FlyTrack enabled and capturing (video mode with `-i` works without a camera). It runs two phases back to back: max speed (no delay), then paced to the camera's reported FPS (120 if none is reported). With `--csv`, each phase also gets a CSV and a markdown report.
+`tools/stress_test_bias.py` polls a FlyTrack track command as hard as it can and reports dropped frames, empty polls, request latency and hangs. It needs `pip install requests` and a running BIAS window with FlyTrack enabled and capturing (video mode with `-i` works without a camera). It first empties the track queue so frames tracked before the run don't count, then runs two phases back to back: max speed (no delay), then paced to the camera's reported FPS (120 if none is reported). With `--csv`, each phase also gets a CSV and a markdown report.
 
 `--cmd` picks what to poll and therefore what a frame-number jump means: `pop-back-track` (default, what BIASBridge polls) mixes "polled too slowly" with tracker drops; `pop-front-track` drains the queue in order, so jumps are genuine tracker drops; `get-last-clear-track` counts every produced frame the consumer never saw.
 

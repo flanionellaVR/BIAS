@@ -19,6 +19,10 @@ The run has two back-to-back phases:
 
 Each phase gets its own report, since they test different things.
 
+Before phase 1 the script calls ``get-last-clear-track`` once to empty the
+queue, so frames tracked before the test started are not counted as new
+frames (``pop-front-track``) or as backward reads (``pop-back-track``).
+
 Keep-alive: by default every poll appends ``keep-alive=1`` so BIAS leaves the
 TCP connection open and the next poll reuses it. Without that, BIAS closes
 the connection after each response and the poll rate is capped by TCP setup
@@ -29,6 +33,8 @@ Which command to poll (``--cmd``):
 
   pop-back-track       newest entry, popped (what BIASBridge polls). Frame
                        gaps mix "polled too slowly" with real tracker drops.
+                       Older entries left behind come back later as
+                       backward reads.
   pop-front-track      oldest entry, popped. Drains the queue IN ORDER, so
                        frame gaps are genuine tracker-dropped frames (as
                        long as you poll fast enough that the queue never
@@ -93,20 +99,18 @@ def find_camera(guid, timeout=0.5):
     raise RuntimeError(f"Camera with ID {guid} not found")
 
 
-def build_track_params(cmd, keep_alive, last=False):
+def build_track_params(cmd, keep_alive):
     """
     Query parameters for one FlyTrack poll.
 
     ``keep-alive=1`` asks BIAS to leave the TCP connection open after the
-    response (it only honors this for plugin-cmd requests). On the final
-    poll ``last=True`` sends ``keep-alive=0`` so the server closes the
-    connection cleanly instead of waiting for its idle timeout.
+    response (it only honors this for plugin-cmd requests).
     """
     payload = {"plugin": "FlyTrack", "cmd": cmd}
     payload_json = json.dumps(payload).replace(" ", "")
     params = {"plugin-cmd": payload_json}
     if keep_alive:
-        params["keep-alive"] = "0" if last else "1"
+        params["keep-alive"] = "1"
     return params
 
 
@@ -123,6 +127,27 @@ def get_fps(session, host, timeout):
     except Exception:
         pass
     return None
+
+
+def clear_track_queue(session, host, timeout):
+    """
+    Empty the FlyTrack queue with one ``get-last-clear-track`` call.
+
+    The queue still holds frames tracked before the test started. Left in
+    place, ``pop-front-track`` would count that backlog as new frames and
+    ``pop-back-track`` would hand it back as frames going backward.
+
+    Returns
+    -------
+    frame : int or None
+        Newest discarded frame number, or None if nothing was discarded.
+    error : str or None
+        ``poll_once``'s error tag; ``"queue-empty"`` means there was
+        nothing to clear.
+    """
+    params = build_track_params("get-last-clear-track", keep_alive=False)
+    _, val, error = poll_once(session, host, params, timeout)
+    return (val or {}).get("frame"), error
 
 
 def poll_once(session, host, params, timeout):
@@ -204,6 +229,7 @@ def new_stats():
         "dropped_frame_total": 0,
         "gap_sizes": [],
         "backwards_count": 0,
+        "max_backward_step": 0,
         "stall_count": 0,
         "max_stall_s": 0.0,
         "first_new_frame_num": None,
@@ -212,10 +238,6 @@ def new_stats():
         "last_new_frame_num": None,
         "last_new_frame_local_t": None,
         "last_new_frame_bias_ts": None,
-        "first_backward_frame_num": None,
-        "first_backward_local_t": None,
-        "last_backward_frame_num": None,
-        "last_backward_local_t": None,
     }
 
 
@@ -246,11 +268,7 @@ def record_response(stats, carry, csv_writer, poll_idx, wall_time, now, latency,
             # Doesn't move carry["last_frame"] -- a backward blip must not
             # poison the gap calculation for the next real forward frame.
             stats["backwards_count"] += 1
-            if stats["first_backward_frame_num"] is None:
-                stats["first_backward_frame_num"] = frame
-                stats["first_backward_local_t"] = now
-            stats["last_backward_frame_num"] = frame
-            stats["last_backward_local_t"] = now
+            stats["max_backward_step"] = max(stats["max_backward_step"], last_frame - frame)
         else:
             is_new_frame = True
             stats["new_frame_count"] += 1
@@ -425,20 +443,53 @@ def run_phase(
                 if not still_running and not in_flight:
                     break
     finally:
-        if keep_alive:
-            # Tell BIAS we're done so it closes each kept-open connection now
-            # rather than after its idle timeout. Not counted in the stats.
-            close_params = build_track_params(cmd, keep_alive, last=True)
-            for sess in sessions:
-                try:
-                    sess.get(host, params=close_params, timeout=timeout)
-                except requests.RequestException:
-                    pass
+        # Closing the socket also ends a kept-open connection on BIAS's side.
+        # A final keep-alive=0 poll would do the same, but every --cmd pops a
+        # frame, so that poll would consume one that no phase counts and the
+        # next phase would report it as a drop.
         for sess in sessions:
             sess.close()
 
     elapsed = time.perf_counter() - t_start
     return stats, elapsed
+
+
+def describe_backward_reads(cmd, parallel):
+    """Report lines explaining what a backward read means for ``cmd``."""
+    lines = []
+    if cmd == "pop-back-track":
+        lines.append(
+            "- This is expected for `pop-back-track`, not a BIAS bug. It takes the "
+            "newest entry, so the queue works like a stack: a poll that arrives before "
+            "BIAS has tracked a new frame gets the next older frame still waiting. "
+            "Polling faster than the camera interleaves new frames with older ones "
+            "counting down (10 11 9 12 8 13). Polling at about the camera rate with "
+            "some timing jitter skips a frame and picks it up on the next read "
+            "(10 12 11 14 13)."
+        )
+    if parallel > 1:
+        lines.append(
+            "- With more than one request in flight, responses can complete out of "
+            "order, so an older frame read on one connection can come back after a "
+            "newer one read on another."
+        )
+    if cmd == "pop-back-track" or parallel > 1:
+        lines.append(
+            "- Each backward read is a frame that was skipped over when a newer one "
+            "came back first. It is also counted under Dropped Frames above, even "
+            "though it did arrive, just late."
+        )
+    else:
+        if cmd == "pop-front-track":
+            reason = "it reads the queue in order"
+        else:
+            reason = "it empties the queue on every read, so nothing older is left"
+        lines.append(
+            f"- `{cmd}` should not go backward with one request at a time, since "
+            f"{reason}. Check whether BIAS's frame counter restarted during the run, "
+            "for example because capture was stopped and started."
+        )
+    return lines
 
 
 def build_markdown_report(
@@ -533,7 +584,6 @@ def build_markdown_report(
         "\"Dropped Frames\" numbers above don't mean real data loss."
     )
     span = None
-    forward_rate = None
     if stats["new_frame_count"] >= 2:
         span = stats["last_new_frame_num"] - stats["first_new_frame_num"]
         local_dt = stats["last_new_frame_local_t"] - stats["first_new_frame_local_t"]
@@ -548,34 +598,11 @@ def build_markdown_report(
     if span is None:
         lines.append("- Not enough distinct frames observed to check this.")
     if stats["backwards_count"]:
-        lines.append(f"- The counter went backward on {stats['backwards_count']} reads.")
-        backward_span = None
-        backward_rate = None
-        if (
-            stats["first_backward_frame_num"] is not None
-            and stats["last_backward_frame_num"] is not None
-        ):
-            backward_span = stats["last_backward_frame_num"] - stats["first_backward_frame_num"]
-            backward_dt = stats["last_backward_local_t"] - stats["first_backward_local_t"]
-            if backward_dt > 0:
-                backward_rate = backward_span / backward_dt
-                lines.append(
-                    f"- Those backward reads count *down* steadily too: "
-                    f"{backward_span} counts over {backward_dt:.1f} s = ~{backward_rate:.1f} counts/s."
-                )
-        if (
-            forward_rate
-            and backward_rate
-            and abs(abs(backward_rate) / forward_rate - 1) < 0.5
-        ):
-            lines.append(
-                "- **This is not random noise.** The backward reads fall about as "
-                "fast and as steadily as the forward reads climb. That looks like BIAS "
-                "is handing back two different counters/queues on alternating calls, "
-                "not simply losing data. Since this shows up whether we poll flat-out "
-                f"or paced to BIAS's own FPS, it points to BIAS's `{cmd}` "
-                "handler, not to how this script polls."
-            )
+        lines.append(
+            f"- The counter went backward on {stats['backwards_count']} reads, "
+            f"by up to {stats['max_backward_step']} frames."
+        )
+        lines.extend(describe_backward_reads(cmd, parallel))
     lines.append("")
     lines.append("## Long Gaps With Nothing New")
     lines.append(f"- **Count:** {stats['stall_count']}")
@@ -663,6 +690,14 @@ def main():
         (1, "Phase 1: Max Throughput", None, f"as fast as possible (no pacing){parallel_suffix}"),
         (2, "Phase 2: Matched FPS", 1 / phase2_fps, f"paced to {phase2_fps:.2f} FPS{parallel_suffix}"),
     ]
+
+    stale_frame, clear_error = clear_track_queue(session, host, args.timeout)
+    if clear_error == "queue-empty":
+        print("Track queue was already empty")
+    elif clear_error:
+        print(f"Could not clear the track queue ({clear_error}); phase 1 may count frames tracked before the test")
+    else:
+        print(f"Cleared the track queue (newest discarded frame: {stale_frame})")
 
     try:
         for phase_num, title, pacing_interval, pacing_description in phases:
