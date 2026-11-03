@@ -25,8 +25,9 @@
 // ------------------------------------------------------------------------
 // Crash diagnostics (Windows only): everything written to stdout/stderr is
 // also saved to <exe dir>\logs\bias_console_<timestamp>.log, and an
-// unhandled exception or CRT error (abort, std::terminate, pure virtual
-// call, invalid CRT parameter) writes <exe dir>\logs\crash_<timestamp>.dmp.
+// unhandled exception, CRT error (abort, std::terminate, pure virtual call,
+// invalid CRT parameter) or Qt fatal message writes
+// <exe dir>\logs\crash_<timestamp>.dmp.
 // ------------------------------------------------------------------------
 namespace {
 
@@ -48,6 +49,10 @@ namespace {
     const DWORD CRASH_CODE_TERMINATE = 0xE0B1A502;
     const DWORD CRASH_CODE_PURE_CALL = 0xE0B1A503;
     const DWORD CRASH_CODE_INVALID_PARAMETER = 0xE0B1A504;
+    const DWORD CRASH_CODE_QT_FATAL = 0xE0B1A505;
+
+    // Qt's handler before ours (Qt's default one); prints every message
+    QtMessageHandler g_previousQtMessageHandler = nullptr;
 
     void initLogDir()
     {
@@ -299,9 +304,9 @@ namespace {
     // The handlers below cover CRT error paths that end the process without
     // reaching the unhandled exception filter.
 
-    // abort() (also reached from qFatal, std::terminate and pure virtual
-    // calls) fast-fails straight into Windows Error Reporting once this
-    // handler returns.
+    // abort() (also reached from std::terminate and pure virtual calls)
+    // fast-fails straight into Windows Error Reporting once this handler
+    // returns.
     void __cdecl onAbortSignal(int)
     {
         reportCrtError(CRASH_CODE_ABORT, "abort() called");
@@ -330,11 +335,33 @@ namespace {
         __fastfail(FAST_FAIL_INVALID_ARG);
     }
 
+    // Qt 5 built with MSVC ends a fatal message (qFatal, failed Q_ASSERT)
+    // with exit(1), not abort(), so it reaches neither onAbortSignal nor the
+    // exception filter. Qt's own handler still prints every message first,
+    // so the fatal text lands in the log right before the CRASH marker.
+    void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+    {
+        if (g_previousQtMessageHandler != nullptr)
+        {
+            g_previousQtMessageHandler(type, context, msg);
+        }
+        else
+        {
+            fprintf(stderr, "%s\n", qPrintable(msg));
+        }
+        if (type == QtFatalMsg)
+        {
+            reportCrtError(CRASH_CODE_QT_FATAL, "Qt fatal error");
+            abort();
+        }
+    }
+
     void installCrashDiagnostics()
     {
         initLogDir();
         installConsoleLogFile();
         qputenv("QT_FORCE_STDERR_LOGGING", "1");
+        g_previousQtMessageHandler = qInstallMessageHandler(qtMessageHandler);
         SetUnhandledExceptionFilter(writeCrashDump);
         signal(SIGABRT, onAbortSignal);
         std::set_terminate(onTerminate);
