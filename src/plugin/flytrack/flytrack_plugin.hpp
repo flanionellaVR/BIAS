@@ -30,6 +30,7 @@ namespace bias
         double a = 0.0;
         double b = 0.0;
         double theta = 0.0;
+        double captureTime = 0.0;    // capture time of the frame (s since capture start, StampedImage.timeStamp)
         // wing tracking (valid only when wing tracking is enabled / nWingsDetected > 0)
         double wingAngleL = 0.0;     // left wing angle (rad), relative to theta+pi
         double wingAngleR = 0.0;     // right wing angle (rad), relative to theta+pi

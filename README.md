@@ -162,7 +162,22 @@ FlyTrack results are read with `plugin-cmd`, whose value is a URL-encoded JSON o
 | `pop-front-track` | oldest entry | removes it (drains in order) |
 | `get-last-clear-track` | newest entry | clears the whole queue |
 
-Each returned ellipse includes the body fields (`frame, x, y, a, b, theta`) and, when wing tracking is on, the wing fields (`wing_anglel, wing_angler, nwings, wing_areal, wing_arear`).
+Each returned ellipse is a JSON object with these keys:
+
+| Key | Unit | Meaning |
+| --- | --- | --- |
+| `frame` | count | Frame number from the image grabber, counted from 0 at every capture start. |
+| `timestamp` | ms | Wall clock (ms since the Unix epoch) at the moment the JSON was built; for an HTTP reply that is the time of the request. Not the capture time. |
+| `capture_time` | s | Capture time of the tracked frame in seconds since the capture started, from the camera's image timestamp (for video input: frame index times frame interval), with 6 decimals. Restarts near 0 at every capture start. `0.000000` for `get-arena-params`, which involves no frame. Added in 0.79.0. |
+| `x`, `y` | px | Ellipse center in image coordinates. |
+| `a`, `b` | px | Semi-major and semi-minor axis (twice the standard deviation of the foreground pixels along each axis). |
+| `theta` | rad | Body orientation, pointing to the end assigned to the head. |
+| `wing_anglel`, `wing_angler` | rad | Left and right wing angle, relative to the rear body axis (`theta` + pi). |
+| `wing_trough_angle` | rad | Angle of the trough between the two wings, relative to the rear body axis. |
+| `nwings` | count | Number of wings detected: 0, 1 or 2. |
+| `wing_areal`, `wing_arear` | px | Pixel area of the left and right wing. |
+
+The wing fields are 0 when wing tracking is off. `get-arena-params` returns the circular ROI in the same format (`x`, `y` = center, `a` = `b` = radius, `theta` = 0; all 0 when the ROI type is `NONE`). The same keys appear in every entry of the FlyTrack track log (the `"track"` array of the output trajectory file).
 
 ### Polling faster than the frame rate (keep-alive)
 
