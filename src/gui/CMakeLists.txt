@@ -122,6 +122,10 @@ target_link_libraries(
     grab_detector_plugin
     flytrack_plugin
     )
+if(WIN32)
+    # MiniDumpWriteDump for the crash handler in main.cpp
+    target_link_libraries(test_gui Dbghelp)
+endif()
 
 qt5_use_modules(test_gui Core Gui Widgets Network PrintSupport SerialPort)
 
