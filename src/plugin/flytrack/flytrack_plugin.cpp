@@ -83,7 +83,20 @@ namespace bias
     void FlyTrackPlugin::reset()
     { 
         initialize();
+        startStatus_ = RtnStatus();
+        if (!config_.computeBgMode && !bgImageComputed_)
+        {
+            // processFramesTrackMode would skip every frame
+            startStatus_.success = false;
+            startStatus_.appendMessage(
+                QString("no background model, unable to load background image %1").arg(config_.bgImageFilePath));
+        }
         openLogFile();
+    }
+
+    RtnStatus FlyTrackPlugin::getStartStatus()
+    {
+        return startStatus_;
     }
 
     void FlyTrackPlugin::setFileAutoNamingString(QString autoNamingString)
@@ -1179,7 +1192,7 @@ namespace bias
         {
             QString logFileFullPath = getLogFileFullPath(true);
             qDebug() << logFileFullPath;
-            fprintf(stderr,"Outputting trajectory to file: %s",logFileFullPath.toStdString().c_str());
+            fprintf(stderr,"Outputting trajectory to file: %s\n",logFileFullPath.toStdString().c_str());
             logFile_.setFileName(logFileFullPath);
             bool isOpen = logFile_.open(QIODevice::WriteOnly | QIODevice::Text);
             if (isOpen)
@@ -1193,6 +1206,8 @@ namespace bias
             {
 				fprintf(stderr,"Failed to open log file: %s\n",logFileFullPath.toStdString().c_str());
                 loggingEnabled_ = false;
+                startStatus_.success = false;
+                startStatus_.appendMessage(QString("unable to open trajectory file %1").arg(logFileFullPath));
 			}
         }
     }

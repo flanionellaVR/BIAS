@@ -127,6 +127,7 @@ Step-by-step instructions for doing real-time tracking of a single fly:
 | `-o`, `--out-track` | `<out-track-file>` | Write the FlyTrack trajectory to this path, overriding the output path in the config. |
 | `--debug-seg-all-frames` | _(flag)_ | Dump the wing-segmentation debug image for **every** frame (to `<Debug Output Folder>/wingseg/wingseg_<frame>.png`) instead of only the first tracked frame. Requires **Debug** enabled in the config. Writes one PNG per frame — run short segments. |
 | `--play-fps` | `<fps>` | When reading from a video (`-i`), throttle playback to this many frames per second so it plays at a realistic rate like a real camera, instead of as fast as the machine can decode/track. `0` (default) = flat out. Useful when testing live behavior (e.g. HTTP polling) against a recorded video. |
+| `--batch` | _(flag)_ | Run unattended (requires `-i`). Capture starts by itself and BIAS quits when it stops, normally at the end of the video, after closing the trajectory file. Errors are written to stderr instead of shown in dialogs. Exits with `0` on a completed run and `1` on any error (see below). |
 | `-h`, `--help` | _(flag)_ | Show the help message and exit. |
 
 Example — track a recorded video with a saved configuration, starting at frame 15000 and writing the trajectory to a chosen file:
@@ -140,6 +141,16 @@ C:\Code\BIAS\build-vs\Release\test_gui.exe `
 ```
 
 The FlyTrack plugin must be enabled (in the loaded config, or via the **Plugins -> Enabled** menu) for tracking to run.
+
+### Batch mode
+
+With `--batch`, BIAS tracks a video without any user interaction, for scripts and automated tests. Under `QT_QPA_PLATFORM=offscreen` it also runs without a display:
+
+```bash
+QT_QPA_PLATFORM=offscreen test_gui --batch -i video.avi -c bias_config.json -o trx.json
+```
+
+The run exits with `1` and a message on stderr if `-i` is missing, the video or configuration file cannot be opened, the configuration (including the plugin section) cannot be applied, the FlyTrack plugin cannot start (no background image, or the trajectory file cannot be created), or capture reports an error. The run also ends, with `0`, when capture is stopped before the end of the video by the capture timer from the configuration or by a `stop-capture` request over HTTP.
 
 ## External control over HTTP
 

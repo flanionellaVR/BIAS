@@ -107,6 +107,7 @@ namespace bias
             QPointer<CameraWindow> getCameraWindow();
 
             virtual void reset();
+            virtual RtnStatus getStartStatus();
             virtual void stop();
             virtual void setActive(bool value);
             virtual void processFrames(QList<StampedImage> frameList);
@@ -191,6 +192,7 @@ namespace bias
             cv::Mat bgLowerBoundImage_; // lower bound image for background
             cv::Mat bgUpperBoundImage_; // upper bound image for background
 			bool bgImageComputed_; // flag indicating if background image has been computed
+            RtnStatus startStatus_; // whether the last reset() left tracking able to run
 
             BackgroundData_ufmf backgroundData_; // background estimation data
             int lastFrameAdded_; // last frame added to background model

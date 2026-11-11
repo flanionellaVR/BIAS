@@ -27,7 +27,7 @@
 #include "plugin_handler.hpp"
 #include "bias_version.h"
 
-//#include <cstdlib>
+#include <cstdlib>
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -713,6 +713,15 @@ namespace bias
         delete imageDispatcherPtr_;
         delete imageLoggerPtr_;
 
+        // A batch run ends whenever capture stops: at the end of the video, on an error, or
+        // via the capture timer or an HTTP request. Quit from the event loop rather than here,
+        // so that an error slot that stops capture and then reports its error still sets the
+        // exit code.
+        if (batchMode_)
+        {
+            QTimer::singleShot(0, this, SLOT(finishBatchRun()));
+        }
+
         rtnStatus.success = true;
         rtnStatus.message = QString("");
         return rtnStatus;
@@ -1249,7 +1258,13 @@ namespace bias
         }
         else
         {
-            setPluginFromMap(pluginMap,showErrorDlg);
+            rtnStatus = setPluginFromMap(pluginMap,showErrorDlg);
+            // A plugin error does not fail the rest of the configuration in the GUI, but a
+            // batch run without its plugin would only produce no output, so it fails there.
+            if (batchMode_ && !rtnStatus.success)
+            {
+                return rtnStatus;
+            }
         }
 
         rtnStatus.success = true;
@@ -1969,13 +1984,13 @@ namespace bias
 
     void CameraWindow::startImageCaptureError(unsigned int errorId, QString errorMsg)
     {
-        stopImageCapture();
+        stopImageCapture(!batchMode_);
         QString msgTitle("Start Image Capture Error");
         QString msgText("Failed to start image capture\n\nError ID: ");
         msgText += QString::number(errorId);
         msgText += "\n\n";
         msgText += errorMsg;
-        QMessageBox::critical(this, msgTitle, msgText);
+        reportError(msgTitle, msgText);
     }
 
 
@@ -1985,7 +2000,7 @@ namespace bias
         // to the stopped state the same way the Stop button does.
         if (capturing_)
         {
-            stopImageCapture();
+            stopImageCapture(!batchMode_);
         }
     }
 
@@ -1997,19 +2012,19 @@ namespace bias
         msgText += QString::number(errorId);
         msgText += "\n\n";
         msgText += errorMsg;
-        QMessageBox::critical(this, msgTitle, msgText);
+        reportError(msgTitle, msgText);
     }
 
     
     void CameraWindow::imageCaptureError(unsigned int errorId, QString errorMsg)
     {
-        stopImageCapture();
+        stopImageCapture(!batchMode_);
         QString msgTitle("Image Capture Error");
         QString msgText("Error ID: ");
         msgText += QString::number(errorId);
         msgText += "\n\n";
         msgText += errorMsg;
-        QMessageBox::critical(this, msgTitle, msgText);
+        reportError(msgTitle, msgText);
     }
 
 
@@ -2021,14 +2036,63 @@ namespace bias
         }
         else
         {
-            stopImageCapture();
+            stopImageCapture(!batchMode_);
             QString msgTitle("Image Logging Error");
             QString msgText("image logging has failed\n\nError ID: ");
             msgText += QString::number(errorId);
             msgText += "\n\n";
             msgText += errorMsg;
-            QMessageBox::critical(this, msgTitle, msgText);
+            reportError(msgTitle, msgText);
         }
+    }
+
+
+    void CameraWindow::startBatchRun()
+    {
+        // Runs from the event loop (queued by initialize), so finishBatchRun can quit it.
+        if (batchExitCode_ != EXIT_SUCCESS)
+        {
+            // Startup already failed, e.g. the configuration could not be loaded
+            finishBatchRun();
+            return;
+        }
+
+        RtnStatus rtnStatus = connectCamera(false);
+        if (rtnStatus.success)
+        {
+            rtnStatus = startImageCapture(false);
+        }
+        if (!rtnStatus.success)
+        {
+            reportError(QString("Capture Error"), rtnStatus.message);
+            finishBatchRun();
+            return;
+        }
+
+        // The plugin was reset by startImageCapture; a plugin that cannot run (e.g. its
+        // output file did not open) would let the batch run finish without any output.
+        if (isPluginEnabled())
+        {
+            QPointer<BiasPlugin> currentPluginPtr = getCurrentPlugin();
+            if (!currentPluginPtr.isNull())
+            {
+                RtnStatus pluginStatus = currentPluginPtr -> getStartStatus();
+                if (!pluginStatus.success)
+                {
+                    QString msgText = QString("Plugin %1 failed to start\n\n%2")
+                        .arg(currentPluginPtr -> getDisplayName())
+                        .arg(pluginStatus.message);
+                    reportError(QString("Plugin Error"), msgText);
+                    stopImageCapture(false);
+                }
+            }
+        }
+    }
+
+
+    void CameraWindow::finishBatchRun()
+    {
+        QCoreApplication::exit(batchExitCode_);
     }
 
 
@@ -2693,6 +2757,10 @@ namespace bias
         logImageQueuePtr_ = std::make_shared<LockableQueue<StampedImage>>();
         pluginImageQueuePtr_ = std::make_shared<LockableQueue<StampedImage>>();
 
+        // Before anything below can report an error (setDefaultFileDirs, config loading)
+        batchMode_ = params.batch;
+        batchExitCode_ = EXIT_SUCCESS;
+
         setDefaultFileDirs();
         currentVideoFileDir_ = defaultVideoFileDir_;
         currentVideoFileName_ = DEFAULT_VIDEO_FILE_NAME;
@@ -2771,8 +2839,17 @@ namespace bias
 
         if (!params.configFile.isEmpty()) {
             if (QFileInfo::exists(params.configFile)) {
-                connectCamera();
-                loadConfiguration(params.configFile, true);
+                connectCamera(!batchMode_);
+                RtnStatus rtnStatus = loadConfiguration(params.configFile, !batchMode_);
+                if (batchMode_ && !rtnStatus.success) {
+                    reportError(QString("Load Configuration Error"), rtnStatus.message);
+                }
+            }
+            else if (batchMode_) {
+                reportError(
+                        QString("Load Configuration Error"),
+                        QString("Configuration file %1 does not exist").arg(params.configFile)
+                        );
             }
             else {
                 qWarning() << QString("Configuration file %1 does not exist: ").arg(params.configFile);
@@ -2788,6 +2865,13 @@ namespace bias
                 }
                 flyTrackPtr->setDebugSegAllFrames(params.debugSegAllFrames);
             }
+        }
+
+        // Start the batch run once the event loop is running: QCoreApplication::exit,
+        // which ends the run, does nothing before that.
+        if (batchMode_)
+        {
+            QTimer::singleShot(0, this, SLOT(startBatchRun()));
         }
 
     }
@@ -3159,7 +3243,7 @@ namespace bias
             haveDefaultVideoFileDir_ = false;
             QString msgTitle("Initialization Error");
             QString msgText("Unable to determine default location for video files.");
-            QMessageBox::critical(this, msgTitle, msgText);
+            reportError(msgTitle, msgText);
         }
         else
         {
@@ -3172,7 +3256,7 @@ namespace bias
             haveDefaultConfigFileDir_ = false;
             QString msgTitle("Initialization Error");
             QString msgText("Unable to determine default location for configuration files.");
-            QMessageBox::critical(this, msgTitle, msgText);
+            reportError(msgTitle, msgText);
         }
         else
         {
@@ -7220,6 +7304,24 @@ namespace bias
         rtnStatus.success = false;
         rtnStatus.message = message;
         return rtnStatus;
+    }
+
+
+    void CameraWindow::reportError(QString title, QString message)
+    {
+        // Show an error dialog, or in batch mode, where nobody can dismiss one, write the
+        // error to stderr as a single line and make the run exit with a failure code.
+        if (batchMode_)
+        {
+            QStringList lines = message.split(QChar('\n'), Qt::SkipEmptyParts);
+            std::cerr << "Error: " << title.toStdString() << ": ";
+            std::cerr << lines.join(QString("; ")).toStdString() << std::endl;
+            batchExitCode_ = EXIT_FAILURE;
+        }
+        else
+        {
+            QMessageBox::critical(this, title, message);
+        }
     }
 
     // Utility functions

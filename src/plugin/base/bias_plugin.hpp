@@ -39,6 +39,7 @@ namespace bias
             QPointer<CameraWindow> getCameraWindow();
 
             virtual void reset();
+            virtual RtnStatus getStartStatus();
             virtual void stop();
             virtual void setActive(bool value);
             virtual void processFrames(QList<StampedImage> frameList);

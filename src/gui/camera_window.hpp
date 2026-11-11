@@ -53,6 +53,7 @@ namespace bias
 		QString trajectoryFile; // output trajectory file path (overrides config)
 		bool debugSegAllFrames = false; // dump wing segmentation every frame (default: first frame only)
 		double playFps = 0.0; // throttle video playback to this fps (0 = flat out, video input only)
+		bool batch = false; // run unattended: start capture, quit when it stops, errors to stderr (video input only)
 	};
 
     class CameraWindow : public QMainWindow, private Ui::CameraWindow
@@ -176,6 +177,10 @@ namespace bias
             void stopImageCaptureError(unsigned int errorId, QString errorMsg);
             void imageCaptureError(unsigned int errorId, QString errorMsg);
             void imageLoggingError(unsigned int errorId, QString errorMsg);
+
+            // Batch mode (--batch)
+            void startBatchRun();
+            void finishBatchRun();
 
             // Display update and duration check timers
             void updateDisplayOnTimer();
@@ -324,6 +329,9 @@ namespace bias
             int captureStartFrame_; // video frame to start tracking from (video input only)
             double capturePlayFps_; // throttle video playback to this fps (0 = flat out, video input only)
 
+            bool batchMode_; // --batch: no dialogs, errors go to stderr, quit when capture stops
+            int batchExitCode_; // exit code of the batch run, EXIT_FAILURE once an error was reported
+
             void connectWidgets();
             void initialize(
                     Guid guid, 
@@ -436,6 +444,7 @@ namespace bias
 
             cv::Mat calcHistogram(cv::Mat mat);
             RtnStatus onError(QString message, QString title, bool showErrorDlg);
+            void reportError(QString title, QString message);
 
     }; // class CameraWindow
 
