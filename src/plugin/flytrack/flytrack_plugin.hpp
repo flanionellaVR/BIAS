@@ -268,6 +268,13 @@ namespace bias
             std::vector<int> outerZoneStatus_; // per outer (Reset) rectangle: 1 if fish inside, else 0
             std::vector<int> innerZoneStatus_; // per inner (Feeder) rectangle: 1 if fish inside, else 0
 
+            // Cached zone masks - the ROI geometry is static during a run, so these are built
+            // once in processFramesTrackMode and invalidated by setROI() on config changes
+            bool roiMasksValid_;
+            cv::Mat roiTriangleMask_;
+            std::vector<cv::Mat> roiOuterMasks_;  // 3 outer (Reset) masks
+            std::vector<cv::Mat> roiInnerMasks_;  // 3 inner (Feeder) masks
+
             // for writing images
             std::vector<int> imwriteParams_;
 

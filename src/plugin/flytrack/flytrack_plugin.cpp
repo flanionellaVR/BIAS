@@ -352,23 +352,48 @@ namespace bias
         // ROI geometry: equilateral triangle (Main ROI) engulfed by 3 outer rectangles
         // (Reset ROI), each holding 1 inner rectangle (Feeder ROI). See computeRoiGeometry().
         // Zone index 0-2 follows triangle-edge order (edge k joins vertex k and vertex k+1).
-        roiGeom_ = computeRoiGeometry(config_);
+        // The geometry is static during a run, so the 7 zone masks are built once and
+        // cached; setROI() invalidates them when the config changes.
+        if (!roiMasksValid_ || roiTriangleMask_.size() != currentImage_.size()) {
+            roiGeom_ = computeRoiGeometry(config_);
+            roiTriangleMask_ = triangleMask(roiGeom_.triangle);
+            for (int i = 0; i < 3; i++) {
+                roiOuterMasks_[i] = rotatedRectMask(roiGeom_.outer[i]);
+                roiInnerMasks_[i] = rotatedRectMask(roiGeom_.inner[i]);
+            }
+            roiMasksValid_ = true;
+        }
 
         // Main ROI is the triangle; trigger = 1 when a fish IS inside it (matches the reset/feeder convention).
-        trigger = detectFishInMask(isFg_, triangleMask(roiGeom_.triangle));
-
-        // Per-zone fish detection for the 3 outer (Reset) and 3 inner (Feeder) rectangles.
-        outerZoneStatus_ = std::vector<int>(3, 0);
-        innerZoneStatus_ = std::vector<int>(3, 0);
+        // Detection results go into locals first: the HTTP server thread reads trigger and
+        // outerZoneStatus_/innerZoneStatus_ without the plugin lock (runCmdFromMap), so the
+        // members must never be wiped/reallocated mid-frame - they are updated element-wise
+        // at the end, and a concurrent reader sees at worst the previous frame's values.
+        bool triggerNow = detectFishInMask(isFg_, roiTriangleMask_);
+        int outerNow[3];
+        int innerNow[3];
         for (int i = 0; i < 3; i++) {
-            outerZoneStatus_[i] = detectFishInMask(isFg_, rotatedRectMask(roiGeom_.outer[i])) ? 1 : 0;
-            innerZoneStatus_[i] = detectFishInMask(isFg_, rotatedRectMask(roiGeom_.inner[i])) ? 1 : 0;
+            outerNow[i] = detectFishInMask(isFg_, roiOuterMasks_[i]) ? 1 : 0;
+            innerNow[i] = detectFishInMask(isFg_, roiInnerMasks_[i]) ? 1 : 0;
+        }
+        trigger = triggerNow;
+        for (int i = 0; i < 3; i++) {
+            outerZoneStatus_[i] = outerNow[i];
+            innerZoneStatus_[i] = innerNow[i];
         }
 
         // Aggregate flags kept for backward compatibility (1 if any corresponding zone is occupied).
         fishInResetROI = (outerZoneStatus_[0] || outerZoneStatus_[1] || outerZoneStatus_[2]);
         resetStatus = fishInResetROI ? 1 : 0;
         feederStatus = (innerZoneStatus_[0] || innerZoneStatus_[1] || innerZoneStatus_[2]) ? 1 : 0;
+
+        // Debug: print the exported status every frame, exactly as served over HTTP:
+        // trigger (get-fish-status), resetROI (get-reset-status), feeder (get-feeder-status).
+        printf("[ROI] frame %lu t=%.3f: trigger=%d resetROI=[%d, %d, %d] feeder=[%d, %d, %d]\n",
+            frameCount_, timeStamp_, trigger ? 1 : 0,
+            outerZoneStatus_[0], outerZoneStatus_[1], outerZoneStatus_[2],
+            innerZoneStatus_[0], innerZoneStatus_[1], innerZoneStatus_[2]);
+        fflush(stdout);
         //printf("Trigger status: %d\n", trigger);
         
         //if (fishInRightFeeder || fishInLeftFeeder) {
@@ -1352,6 +1377,9 @@ namespace bias
         headTailResolved_ = false;
         outerZoneStatus_ = std::vector<int>(3, 0);
         innerZoneStatus_ = std::vector<int>(3, 0);
+        roiMasksValid_ = false;
+        roiOuterMasks_ = std::vector<cv::Mat>(3);
+        roiInnerMasks_ = std::vector<cv::Mat>(3);
 
         setFromConfig(config_);
     }
@@ -1537,6 +1565,7 @@ namespace bias
     // Main ROI mask is the equilateral triangle; the outer/inner rectangles are computed on demand
     // from roiGeom_. currently only RECTANGLE roiType is implemented.
     void FlyTrackPlugin::setROI(FlyTrackConfig config) {
+        roiMasksValid_ = false; // config may have changed - cached zone masks are stale
         if (!bgImageComputed_) return;
         printf("setting ROI (triangle Main ROI + 3 outer Reset + 3 inner Feeder rectangles)\n");
         switch (config.roiType) {
