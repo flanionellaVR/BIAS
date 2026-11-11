@@ -23,6 +23,14 @@ namespace bias
     void BiasPlugin::reset()
     { }
 
+    // Whether the last reset() left the plugin able to run, e.g. its output file opened.
+    // The default always succeeds; plugins that can fail to start override it.
+    RtnStatus BiasPlugin::getStartStatus()
+    {
+        RtnStatus rtnStatus;
+        return rtnStatus;
+    }
+
     void BiasPlugin::setFileAutoNamingString(QString autoNamingString)
     {
         fileAutoNamingString_ = autoNamingString;

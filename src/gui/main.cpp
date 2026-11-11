@@ -6,7 +6,9 @@
 #include "camera_facade.hpp"
 #include "affinity.hpp"
 #include <iostream>
+#include <cstdlib>
 #include <QCommandLineParser>
+#include <QFileInfo>
 
 
 // ------------------------------------------------------------------------
@@ -61,6 +63,12 @@ int main (int argc, char *argv[])
 		QStringList() << "play-fps",
 		QString("Throttle video playback to <fps> (video input only; 0 = flat out)"),
 		QString("fps")));
+    // --batch
+    // run unattended: start capture at startup, quit when it stops (e.g. at the end of the
+    // video), report errors on stderr and as a nonzero exit code instead of in dialogs.
+    parser.addOption(QCommandLineOption(
+		QStringList() << "batch",
+		QString("Run unattended: start capture, quit at the end of the video, report errors on stderr and in the exit code (requires -i)")));
 
     parser.process(app);
     bias::CmdLineParams params;
@@ -70,7 +78,24 @@ int main (int argc, char *argv[])
     params.trajectoryFile = parser.value("out-track");
     params.debugSegAllFrames = parser.isSet("debug-seg-all-frames");
     params.playFps = parser.value("play-fps").toDouble(); // 0 if not provided
+    params.batch = parser.isSet("batch");
 
+    if (params.batch)
+    {
+        if (params.inVideoFile.isEmpty())
+        {
+            std::cerr << "Error: --batch requires -i/--in-video <in-video-file>" << std::endl;
+            return EXIT_FAILURE;
+        }
+        // Check here: CameraWindow falls back to a camera device for a missing video
+        // file, which throws on the placeholder guid used for video input.
+        if (!QFileInfo::exists(params.inVideoFile))
+        {
+            std::cerr << "Error: input video file " << params.inVideoFile.toStdString();
+            std::cerr << " does not exist" << std::endl;
+            return EXIT_FAILURE;
+        }
+    }
 
     bias::GuidList guidList;
     bias::CameraFinder cameraFinder;
