@@ -178,6 +178,7 @@ namespace bias
 
         // compute mean and covariance of pixels in foreground
         flyEllipse_.frame = frameCount_;
+        flyEllipse_.captureTime = timeStamp_;
         fitEllipse(isFg_, flyEllipse_);
 
         // default wing fields (overwritten by trackWings() when wing tracking is enabled)
@@ -2184,6 +2185,7 @@ namespace bias
         QString json = QString("{");
         json += QString("\"frame\": %1,").arg(ell.frame);
         json += QString("\"timestamp\": %1,").arg(QDateTime::currentMSecsSinceEpoch());
+        json += QString("\"capture_time\": %1,").arg(ell.captureTime, 0, 'f', 6);
         json += QString("\"x\": %1,").arg(ell.x);
         json += QString("\"y\": %1,").arg(ell.y);
         json += QString("\"a\": %1,").arg(ell.a);

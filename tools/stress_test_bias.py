@@ -238,13 +238,15 @@ def new_stats():
         "last_new_frame_num": None,
         "last_new_frame_local_t": None,
         "last_new_frame_bias_ts": None,
+        "capture_times": [],  # (frame, capture_time) of replies with data, in read order
+        "data_reply_count": 0,
     }
 
 
 def record_response(stats, carry, csv_writer, poll_idx, wall_time, now, latency, val, error, stall_threshold_s):
     """Classify one poll's response (new/repeat/empty/backward/error) and update stats + carry in place."""
     stats["latencies"].append(latency)
-    frame = x = y = theta = bias_ts = gap = None
+    frame = x = y = theta = bias_ts = gap = capture_time = None
     is_new_frame = False
 
     if error == "queue-empty":
@@ -260,6 +262,10 @@ def record_response(stats, carry, csv_writer, poll_idx, wall_time, now, latency,
         frame = val["frame"]
         x, y, theta = val.get("x"), val.get("y"), val.get("theta")
         bias_ts = val.get("timestamp")
+        stats["data_reply_count"] += 1
+        if val.get("capture_time") is not None:
+            capture_time = float(val["capture_time"])
+            stats["capture_times"].append((frame, capture_time))
 
         last_frame = carry["last_frame"]
         if last_frame is not None and frame == last_frame:
@@ -300,7 +306,7 @@ def record_response(stats, carry, csv_writer, poll_idx, wall_time, now, latency,
         csv_writer.writerow(
             [
                 poll_idx, f"{wall_time:.6f}", f"{latency * 1000:.3f}",
-                frame, is_new_frame, gap, x, y, theta, bias_ts, error or "",
+                frame, is_new_frame, gap, x, y, theta, bias_ts, capture_time, error or "",
             ]
         )
 
@@ -492,6 +498,86 @@ def describe_backward_reads(cmd, parallel):
     return lines
 
 
+def summarize_capture_times(cmd, stats):
+    """Markdown lines on the capture_time BIAS reports with each track (0.79.0 and later).
+
+    capture_time is the capture time of the tracked frame in seconds since the
+    capture started. Within one capture it should only grow; a restart of the
+    capture resets it to about 0.
+    """
+    cts = stats["capture_times"]
+    n_data = stats["data_reply_count"]
+    lines = ["## Capture Time", ""]
+    if not n_data:
+        lines.append("- No replies with data, nothing to check.")
+        return lines
+    if not cts:
+        lines.append(
+            f"- **capture_time MISSING in all {n_data} replies with data.** This BIAS "
+            "build does not send capture times (older than 0.79.0)."
+        )
+        return lines
+    lines.append(
+        "Checks the `capture_time` that BIAS reports with each track: the camera's "
+        "image timestamp (for video input, frame index times frame interval)."
+    )
+    lines.append(f"- **Present in:** {len(cts)} of {n_data} replies with data")
+    n_back = n_repeat = 0
+    intervals = []  # ms between consecutive replies with increasing capture_time
+    cam = []  # ms per frame, for pairs with a frame difference of at least 1
+    for (fa, ta), (fb, tb) in zip(cts, cts[1:]):
+        if tb < ta:
+            n_back += 1
+        elif tb == ta:
+            n_repeat += 1
+        else:
+            intervals.append(1e3 * (tb - ta))
+            if fb - fa >= 1:
+                cam.append(1e3 * (tb - ta) / (fb - fa))
+    lines.append(f"- **Went backward:** {n_back}")
+    lines.append(f"- **Repeated:** {n_repeat}")
+    if cmd == "pop-back-track":
+        lines.append(
+            "`pop-back-track` pops only the newest track and leaves older ones queued, so "
+            "a poll that finds nothing newer can return an older one: backward steps are "
+            "possible. Use `--cmd pop-front-track` for an in-order check."
+        )
+    else:
+        lines.append(
+            "Both should be 0 within one capture (restarting the capture resets "
+            "capture_time to about 0)."
+        )
+    lines.append("These pairs are left out of the statistics below.")
+    if intervals:
+        lines.append("")
+        lines.append("| capture_time interval between replies | ms |")
+        lines.append("|---|---|")
+        lines.append(f"| min | {min(intervals):.3f} |")
+        lines.append(f"| median | {statistics.median(intervals):.3f} |")
+        lines.append(f"| p95 | {percentile(intervals, 95):.3f} |")
+        lines.append(f"| p99 | {percentile(intervals, 99):.3f} |")
+        lines.append(f"| max | {max(intervals):.3f} |")
+        lines.append(f"| n | {len(intervals)} |")
+    if cam:
+        med = statistics.median(cam)
+        sd = statistics.stdev(cam) if len(cam) >= 2 else 0.0
+        lines.append("")
+        lines.append(
+            "Camera interval = (capture_time difference) / (frame difference) over "
+            "consecutive replies. A frame the camera itself dropped makes the estimate "
+            "of that pair too large."
+        )
+        lines.append("")
+        lines.append("| Camera interval | value |")
+        lines.append("|---|---|")
+        lines.append(f"| median | {med:.3f} ms ({1e3 / med if med > 0 else 0.0:.1f} Hz) |")
+        lines.append(f"| std | {sd:.3f} ms |")
+        lines.append(f"| p5 | {percentile(cam, 5):.3f} ms |")
+        lines.append(f"| p95 | {percentile(cam, 95):.3f} ms |")
+        lines.append(f"| n | {len(cam)} |")
+    return lines
+
+
 def build_markdown_report(
     title, host, cmd, keep_alive, camera_fps, pacing_description, stats, elapsed, expected_interval, parallel=1
 ):
@@ -608,6 +694,8 @@ def build_markdown_report(
     lines.append(f"- **Count:** {stats['stall_count']}")
     lines.append(f"- **Longest:** {stats['max_stall_s']:.3f} s")
     lines.append("")
+    lines.extend(summarize_capture_times(cmd, stats))
+    lines.append("")
     lines.append("## Request Latency (round trip per poll)")
     if latencies_ms:
         lines.append("| Stat | ms |")
@@ -711,7 +799,7 @@ def main():
                 csv_writer.writerow(
                     [
                         "poll_idx", "wall_time", "latency_ms", "frame", "is_new_frame",
-                        "frame_gap", "x", "y", "theta", "bias_timestamp", "error",
+                        "frame_gap", "x", "y", "theta", "bias_timestamp", "capture_time", "error",
                     ]
                 )
 
