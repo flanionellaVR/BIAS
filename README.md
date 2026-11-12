@@ -350,6 +350,43 @@ Notes:
   headless OpenCV may lack. The former `fly_sorter` demo and its `with_demos`
   option were removed (#35), so there is no demo flag to turn off for CI.
 
+### Continuous integration and the pixi environment
+
+`.github/workflows/build.yml` builds the video-only configuration on every
+pull request and on every push to `trackfly`, on Windows (MSVC), Linux (GCC)
+and macOS (Apple Silicon, Clang). Linux and macOS may fail until the
+portability fixes in #25 land; the Windows job must pass. When a build fails,
+the job summary lists the compile errors.
+
+The Windows job also uploads a workflow artifact `BIAS-<version>-<commit>-windows-x64`:
+`test_gui.exe` with the Qt runtime from `windeployqt` and every DLL it loads
+from the build environment (OpenCV, FFmpeg, ICU, MSVC runtime), collected by
+`cmake/collect_runtime_dlls.cmake`. It is a video-only build without
+Spinnaker, so it cannot drive cameras.
+
+The dependencies (CMake, Ninja, Qt 5.15, headless OpenCV 4, Python, and the
+compilers on Linux and macOS) come from conda-forge through `pixi.toml` and
+`pixi.lock`. To build the same way locally, install [pixi](https://pixi.sh)
+and run from the repository root:
+
+```sh
+pixi shell
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+    -Dwith_spin=OFF -Dwith_fc2=OFF -Dwith_dc1394=OFF -Dwith_video_backend=ON
+cmake --build build
+```
+
+On macOS add `-DCMAKE_OSX_SYSROOT=macosx`. conda-forge has no MSVC, so on
+Windows start from a Visual Studio Developer PowerShell:
+
+```powershell
+pixi shell
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$env:CONDA_PREFIX\Library" `
+    -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+    -Dwith_spin=OFF -Dwith_fc2=OFF -Dwith_dc1394=OFF -Dwith_video_backend=ON
+cmake --build build
+```
+
 ### Deploying the Qt runtime (windeployqt)
 
 This now runs automatically as a CMake post-build step for `test_gui` (see `WINDEPLOYQT_EXECUTABLE` in the top-level `CMakeLists.txt`), copying the matching Qt DLLs next to the exe so it can't pick up an incompatible Qt bundled with another SDK (e.g. Spinnaker's Qt 5.7) via `PATH`.

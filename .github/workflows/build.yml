@@ -1,0 +1,170 @@
+name: Build
+
+# Video-only build (no camera SDK) on Windows, Linux and macOS, with the
+# dependencies from pixi.toml. Linux and macOS are allowed to fail until the
+# portability fixes in #25 land; the Windows job must pass.
+
+on:
+  pull_request:
+  push:
+    branches: [trackfly]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow-failure }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-msvc
+            os: windows-latest
+            allow-failure: false
+          - name: linux-gcc
+            os: ubuntu-24.04
+            allow-failure: true
+          # Apple Silicon. GitHub retired the macos-14 images in November 2026.
+          - name: macos-clang
+            os: macos-15
+            allow-failure: true
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # conda-forge does not ship MSVC: put cl, link, rc and dumpbin from the
+      # runner's Visual Studio on PATH (what vcvars64.bat does in a Developer
+      # PowerShell). Only variables that vcvars changes are exported.
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "No Visual Studio installation with the x64 C++ tools found" }
+          Write-Output "Using Visual Studio in $vs"
+          $vars = cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && set"
+          if ($LASTEXITCODE -ne 0) { throw "vcvars64.bat failed" }
+          foreach ($line in $vars) {
+            $name, $value = $line -split '=', 2
+            if ($name -and $value -ne [Environment]::GetEnvironmentVariable($name)) {
+              "$name=$value" >> $env:GITHUB_ENV
+            }
+          }
+
+      # Puts the pixi environment (cmake, ninja, Qt, OpenCV, compilers on
+      # Linux/macOS) ahead of everything else on PATH for the later steps.
+      - uses: prefix-dev/setup-pixi@v0.11.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'trackfly' }}
+          activate-environment: true
+
+      - name: Configure
+        run: |
+          args=()
+          prefix="$CONDA_PREFIX"
+          case "$RUNNER_OS" in
+            Windows)
+              prefix="$(cygpath -m "$CONDA_PREFIX")/Library"
+              args+=(-DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl)
+              ;;
+            macOS)
+              # CMake 4 no longer picks an SDK by default.
+              args+=(-DCMAKE_OSX_SYSROOT=macosx)
+              ;;
+          esac
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$prefix" \
+            -Dwith_spin=OFF -Dwith_fc2=OFF -Dwith_dc1394=OFF -Dwith_video_backend=ON \
+            "${args[@]}"
+
+      # -k 0 keeps going after the first failing file, so the log lists every
+      # compile error the platform has, not only the first one.
+      - name: Build
+        id: build
+        run: cmake --build build -- -k 0 2>&1 | tee build.log
+
+      - name: Summarize compile errors
+        if: failure() && steps.build.outcome == 'failure'
+        run: |
+          # Workspace root with forward slashes (pwd -W exists on Windows only).
+          root="$(pwd -W 2>/dev/null || pwd)"
+          {
+            echo "### Compile errors on ${{ matrix.name }}"
+            echo
+            echo '```'
+            sed -e 's|\\|/|g' -e "s|$root/||g" build.log \
+              | grep -E ': (fatal )?error|undefined reference' | sort -u | head -n 300 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The smoke test from #33 registers the first test; until then the build
+      # has no CTestTestfile.cmake and this step is skipped.
+      - name: Test
+        if: hashFiles('build/CTestTestfile.cmake') != ''
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      # test_gui.exe plus the Qt runtime (windeployqt) and every DLL it loads
+      # from the pixi environment (OpenCV, FFmpeg, ICU, MSVC runtime, ...).
+      - name: Package
+        id: package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (Get-Content version.txt -TotalCount 1).Trim()
+          $name = "BIAS-$version-$(git rev-parse --short HEAD)-windows-x64"
+          $dir = "dist/$name"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item build/test_gui.exe $dir
+          windeployqt --no-translations --no-compiler-runtime "$dir/test_gui.exe"
+          cmake -DDEPLOY_DIR="$dir" -DENV_BIN_DIR="$env:CONDA_PREFIX/Library/bin" -P cmake/collect_runtime_dlls.cmake
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+
+      # Start the packaged exe with only the Windows folders on PATH: a missing
+      # DLL fails here (exit code 0xC0000135) instead of on a rig, and so does a
+      # missing Qt platform plugin (QApplication is created before the command
+      # line is parsed). Piping the output makes Qt print the help text instead
+      # of opening a message box.
+      - name: Check that the package starts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dir = "${{ steps.package.outputs.dir }}"
+          $exe = Resolve-Path "$dir/test_gui.exe"
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $output = & $exe --help 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $output
+          # test_gui.exe writes its console log to logs\ next to itself; keep
+          # that out of the artifact.
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$dir/logs"
+          if ($code -ne 0) { throw ("test_gui.exe --help exited with 0x{0:X8}" -f $code) }
+          # stdout goes through a log thread that the process can end before it
+          # has forwarded the help text, so a missing text is only a warning.
+          if ($output -notmatch 'in-video') { Write-Output "::warning::test_gui.exe --help printed no usage text" }
+
+      - name: Upload package
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: dist
+          if-no-files-found: error

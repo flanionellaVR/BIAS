@@ -1,0 +1,35 @@
+# Minimal build environment for BIAS (video-only build, used by CI).
+#
+# Provides CMake, Ninja, Qt 5.15 and a headless OpenCV 4 from conda-forge,
+# plus Python for the smoke-test comparison script. The full developer
+# environment (tasks, presets, Spinnaker) is added in #25.
+#
+# Compilers:
+# - Linux and macOS take the conda-forge toolchain, so the compiler and the
+#   C++ runtime match the libraries Qt and OpenCV were built against.
+# - Windows: conda-forge does not ship MSVC. Run pixi from a Visual Studio
+#   Developer PowerShell (or after vcvars64.bat) so cl.exe is on PATH.
+
+[workspace]
+name = "bias"
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-arm64"]
+
+[dependencies]
+cmake = ">=3.21"
+ninja = "*"
+qt-main = "5.15.*"
+# conda-forge has only "headless" and "qt6" OpenCV builds; the qt6 variant
+# would pull a second Qt major into the environment.
+libopencv = { version = "4.*", build = "headless*" }
+python = "3.12.*"
+
+[target.linux-64.dependencies]
+c-compiler = "*"
+cxx-compiler = "*"
+# Qt5Gui's CMake config requires GL/gl.h.
+libgl-devel = "*"
+
+[target.osx-arm64.dependencies]
+c-compiler = "*"
+cxx-compiler = "*"
