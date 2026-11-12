@@ -1,0 +1,47 @@
+{
+    "timer": {
+        "enabled": false,
+        "settings": {
+            "duration": 300
+        }
+    },
+    "server": {
+        "enabled": false,
+        "port": 5010
+    },
+    "plugin": {
+        "name": "FlyTrack",
+        "config": {
+            "bgEst": {
+                "computeBgMode": false,
+                "bgImageFilePath": "background.png",
+                "nFramesSkipBgEst": 500
+            },
+            "roi": {
+                "roiType": "NONE",
+                "roiCenterX": 0,
+                "roiCenterY": 0,
+                "roiRadius": 0
+            },
+            "bgSub": {
+                "backgroundThreshold": 75,
+                "flyVsBgMode": "FLY_DARKER_THAN_BG"
+            },
+            "headTail": {
+                "historyBufferLength": 5,
+                "minVelocityMagnitude": 1.0,
+                "headTailWeightVelocity": 3.0,
+                "headTailWeightWing": 10.0
+            },
+            "wing": {
+                "trackWings": false
+            },
+            "misc": {
+                "maxTrackQueueLength": 10000,
+                "DEBUG": false,
+                "tmpOutDir": "tmp",
+                "trackFileName": ""
+            }
+        }
+    }
+}
