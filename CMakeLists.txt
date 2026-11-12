@@ -283,6 +283,9 @@ if(with_qt_gui)
 endif()
 
 if (with_tests)
+    # Must be called from the top-level directory so that ctest, run from the
+    # build directory, finds the tests registered in src/test.
+    enable_testing()
     add_subdirectory("src/test")
 endif()
 
