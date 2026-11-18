@@ -2,7 +2,9 @@
 """
 Poll BIAS's FlyTrack tracking endpoint as hard as possible for a while, and
 report how many frames were dropped or otherwise irregular, plus request
-latency and hangs.
+latency and hangs. It also checks the ``capture_time`` that BIAS sends with
+each track: whether it is present, whether it goes backward, and the camera
+interval it implies.
 
 This talks to BIAS directly over HTTP, the same way BIASBridge's
 ``BIASBridge._request`` does, but without any of the Bridge/Scene/Unity
@@ -498,8 +500,8 @@ def describe_backward_reads(cmd, parallel):
     return lines
 
 
-def summarize_capture_times(cmd, stats):
-    """Markdown lines on the capture_time BIAS reports with each track (0.79.0 and later).
+def summarize_capture_times(cmd, stats, parallel=1):
+    """Markdown lines on the capture_time BIAS reports with each track (0.80.1 and later).
 
     capture_time is the capture time of the tracked frame in seconds since the
     capture started. Within one capture it should only grow; a restart of the
@@ -514,7 +516,7 @@ def summarize_capture_times(cmd, stats):
     if not cts:
         lines.append(
             f"- **capture_time MISSING in all {n_data} replies with data.** This BIAS "
-            "build does not send capture times (older than 0.79.0)."
+            "build does not send capture times (older than 0.80.1)."
         )
         return lines
     lines.append(
@@ -538,16 +540,21 @@ def summarize_capture_times(cmd, stats):
     lines.append(f"- **Repeated:** {n_repeat}")
     if cmd == "pop-back-track":
         lines.append(
-            "`pop-back-track` pops only the newest track and leaves older ones queued, so "
+            "- `pop-back-track` pops only the newest track and leaves older ones queued, so "
             "a poll that finds nothing newer can return an older one: backward steps are "
             "possible. Use `--cmd pop-front-track` for an in-order check."
         )
-    else:
+    if parallel > 1:
         lines.append(
-            "Both should be 0 within one capture (restarting the capture resets "
+            "- With more than one request in flight, replies can complete out of order, "
+            "so backward steps are possible. Use `--parallel 1` for an in-order check."
+        )
+    if cmd != "pop-back-track" and parallel == 1:
+        lines.append(
+            "- Both should be 0 within one capture (restarting the capture resets "
             "capture_time to about 0)."
         )
-    lines.append("These pairs are left out of the statistics below.")
+    lines.append("- Backward and repeated pairs are left out of the statistics below.")
     if intervals:
         lines.append("")
         lines.append("| capture_time interval between replies | ms |")
@@ -694,7 +701,7 @@ def build_markdown_report(
     lines.append(f"- **Count:** {stats['stall_count']}")
     lines.append(f"- **Longest:** {stats['max_stall_s']:.3f} s")
     lines.append("")
-    lines.extend(summarize_capture_times(cmd, stats))
+    lines.extend(summarize_capture_times(cmd, stats, parallel))
     lines.append("")
     lines.append("## Request Latency (round trip per poll)")
     if latencies_ms:

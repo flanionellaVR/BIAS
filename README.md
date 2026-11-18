@@ -168,7 +168,7 @@ Each returned ellipse is a JSON object with these keys:
 | --- | --- | --- |
 | `frame` | count | Frame number from the image grabber, counted from 0 at every capture start. |
 | `timestamp` | ms | Wall clock (ms since the Unix epoch) at the moment the JSON was built; for an HTTP reply that is the time of the request. Not the capture time. |
-| `capture_time` | s | Capture time of the tracked frame in seconds since the capture started, from the camera's image timestamp (for video input: frame index times frame interval), with 6 decimals. Restarts near 0 at every capture start. `0.000000` for `get-arena-params`, which involves no frame. Added in 0.79.0. |
+| `capture_time` | s | Capture time of the tracked frame in seconds since the capture started, from the camera's image timestamp (for video input: frame index times frame interval), with 6 decimals. Restarts near 0 at every capture start. `0.000000` for `get-arena-params`, which involves no frame. Added in 0.80.1. |
 | `x`, `y` | px | Ellipse center in image coordinates. |
 | `a`, `b` | px | Semi-major and semi-minor axis (twice the standard deviation of the foreground pixels along each axis). |
 | `theta` | rad | Body orientation, pointing to the end assigned to the head. |
