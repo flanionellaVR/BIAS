@@ -1,0 +1,6 @@
+*~
+*.o
+*.swp
+/.vs/
+/build*/
+__pycache__/
