@@ -29,6 +29,10 @@ if (with_spin)
     set(bias_camera_facade_link_libs ${bias_camera_facade_link_libs} bias_backend_spin)
 endif()
 
+if (with_arena)
+    set(bias_camera_facade_link_libs ${bias_camera_facade_link_libs} bias_backend_arena)
+endif()
+
 if (with_video_backend)
     set(bias_camera_facade_link_libs ${bias_camera_facade_link_libs} bias_backend_video)
 endif()

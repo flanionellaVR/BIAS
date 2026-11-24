@@ -4,3 +4,5 @@
 /.vs/
 /build*/
 __pycache__/
+# Written by the Arena SDK (LUCID) into the working directory
+persist.json

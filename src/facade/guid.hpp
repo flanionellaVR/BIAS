@@ -22,6 +22,10 @@
 #include "guid_device_spin.hpp"
 #endif
 
+#ifdef WITH_ARENA
+#include "guid_device_arena.hpp"
+#endif
+
 
 namespace bias {
     
@@ -68,6 +72,13 @@ namespace bias {
         public:
             explicit Guid(std::string guidStr);
             std::string getValue_spin();
+#endif
+#ifdef WITH_ARENA
+        // Arena SDK (LUCID) specific features
+        public:
+            // Named constructor - a plain Guid(std::string) is already used by Spinnaker
+            static Guid fromSerialNumber_arena(std::string serialNumber);
+            std::string getValue_arena();
 #endif
            
     };

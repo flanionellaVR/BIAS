@@ -15,6 +15,9 @@
 #ifdef WITH_SPIN
 #include "camera_device_spin.hpp"
 #endif
+#ifdef WITH_ARENA
+#include "camera_device_arena.hpp"
+#endif
 
 namespace bias {
 
@@ -39,6 +42,10 @@ namespace bias {
 
             case CAMERA_LIB_SPIN:
                 createCameraDevice_spin(guid);
+                break;
+
+            case CAMERA_LIB_ARENA:
+                createCameraDevice_arena(guid);
                 break;
 
             case CAMERA_LIB_UNDEFINED:
@@ -789,6 +796,26 @@ namespace bias {
 #else
         throw_ERROR_NO_SPIN(std::string(__PRETTY_FUNCTION__));
 #endif
+    }
+
+#endif
+
+    // Arena SDK (LUCID) specific methods
+    // -----------------------------------------------------------------------
+#ifdef WITH_ARENA
+
+    void Camera::createCameraDevice_arena(Guid guid)
+    {
+        cameraDevicePtr_ = std::make_shared<CameraDevice_arena>(guid);
+    }
+
+#else
+    // Dummy methods for when the library isn't included - allows the ifdefs 
+    // to  be limited to two locations.
+
+    void Camera::createCameraDevice_arena(Guid guid)
+    {
+        throw_ERROR_NO_ARENA(std::string(__FUNCTION__));
     }
 
 #endif

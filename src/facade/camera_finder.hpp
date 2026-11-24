@@ -39,6 +39,11 @@ namespace bias {
             void printGuid();
 
             std::string getSpinnakerVersionString();
+            std::string getArenaVersionString();
+
+            // Name and version of the camera SDK this build uses, e.g. 
+            // "Spinnaker version 2.6.0.160" - for display in the GUI.
+            std::string getCameraSdkVersionString();
 
         private:
             GuidSet guidSet_;
@@ -52,10 +57,14 @@ namespace bias {
             void createQueryContext_spin();
             void destroyQueryContext_spin();
 
+            void createQueryContext_arena();
+            void destroyQueryContext_arena();
+
             void update();
             void update_fc2();
             void update_dc1394();
             void update_spin();
+            void update_arena();
 
 #ifdef WITH_FC2
         private:
@@ -69,6 +78,11 @@ namespace bias {
         private:
             spinSystem queryContext_spin_ = nullptr;
 
+#endif
+#ifdef WITH_ARENA
+        private:
+            // True while this finder holds a reference to the shared Arena system
+            bool haveQueryContext_arena_ = false;
 #endif
     };
 

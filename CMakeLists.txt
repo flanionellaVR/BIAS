@@ -18,6 +18,7 @@ option(with_qt_gui  "include image acquisition GUI"   ON)
 option(with_fc2     "include the FlyCapture2 backend" OFF)
 option(with_dc1394  "include the libdc1394 backend"   OFF)
 option(with_spin    "include the spin backend"   ON)
+option(with_arena   "include the Arena SDK (LUCID) backend" OFF)
 option(with_tests   "include tests" ON)
 option(with_video_backend     "include video backend" ON)
 # KB 20240215 - follows options for BIASJAABA - include tests
@@ -26,6 +27,7 @@ option(with_video_backend     "include video backend" ON)
 message(STATUS "Option: with_fc2     = ${with_fc2}")
 message(STATUS "Option: with_dc1394  = ${with_dc1394}")
 message(STATUS "Option: with_spin    = ${with_spin}")
+message(STATUS "Option: with_arena   = ${with_arena}")
 message(STATUS "Option: with_qt_gui  = ${with_qt_gui}")
 message(STATUS "Option: with_tests   = ${with_tests}") 
 message(STATUS "Option: with_video_backend     = ${with_video_backend}")
@@ -34,13 +36,22 @@ message(STATUS "Option: with_video_backend     = ${with_video_backend}")
 # configuration (no camera SDK needed, e.g. on CI runners): the facade compiles
 # through its #else stubs and test_gui must then be started with
 # -i <video-file> because there are no cameras to enumerate.
-if(NOT (with_fc2 OR with_dc1394 OR with_spin OR with_video_backend))
+if(NOT (with_fc2 OR with_dc1394 OR with_spin OR with_arena OR with_video_backend))
     message(FATAL_ERROR
         "there must be at least one backend: enable with_fc2, with_dc1394, "
-        "with_spin or with_video_backend")
+        "with_spin, with_arena or with_video_backend")
 endif()
 
-if(NOT (with_fc2 OR with_dc1394 OR with_spin))
+# The Spinnaker and Arena SDK backends can't be combined in one build: the camera
+# SDK is chosen at compile time, e.g. -Dwith_spin=OFF -Dwith_arena=ON for LUCID
+# cameras.
+if(with_spin AND with_arena)
+    message(FATAL_ERROR
+        "with_spin and with_arena can't both be enabled: choose one camera SDK "
+        "per build, e.g. -Dwith_spin=OFF -Dwith_arena=ON")
+endif()
+
+if(NOT (with_fc2 OR with_dc1394 OR with_spin OR with_arena))
     message(STATUS "No camera backend enabled: video-only build "
                    "(run test_gui with -i <video-file>)")
 endif()
@@ -67,6 +78,10 @@ endif()
 
 if(with_spin)
     find_package( Spinnaker MODULE REQUIRED )
+endif()
+
+if(with_arena)
+    find_package( Arena MODULE REQUIRED )
 endif()
 
 # Qt library
@@ -167,6 +182,10 @@ if(with_spin)
     add_definitions(-DWITH_SPIN)
 endif()
 
+if(with_arena)
+    add_definitions(-DWITH_ARENA)
+endif()
+
 if(with_dc1394)
     add_definitions(-DWITH_DC1394)
 endif()
@@ -209,6 +228,12 @@ if (with_spin)
     include_directories("./src/backend/spin")
 endif()
 
+if (with_arena)
+    # Note: the Arena SDK headers themselves are only added to the include path
+    # of the Arena backend (see src/backend/arena/CMakeLists.txt).
+    include_directories("./src/backend/arena")
+endif()
+
 if(with_dc1394)
     include_directories("./src/backend/dc1394")
     # Add custom libdc1394 
@@ -232,6 +257,10 @@ endif()
 
 if (with_spin)
     set(bias_ext_link_LIBS ${bias_ext_link_LIBS} ${Spinnaker_LIBRARIES})
+endif()
+
+if (with_arena)
+    set(bias_ext_link_LIBS ${bias_ext_link_LIBS} ${Arena_LIBRARIES})
 endif()
 
 if(with_dc1394)
@@ -264,6 +293,10 @@ endif()
 
 if(with_spin)
     add_subdirectory("src/backend/spin")
+endif()
+
+if(with_arena)
+    add_subdirectory("src/backend/arena")
 endif()
 
 if(with_video_backend)

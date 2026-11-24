@@ -145,6 +145,7 @@ namespace bias {
             void createCameraDevice_fc2(Guid guid);
             void createCameraDevice_dc1394(Guid guid);
             void createCameraDevice_spin(Guid guid);
+            void createCameraDevice_arena(Guid guid);
 
     };
 

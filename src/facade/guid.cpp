@@ -138,6 +138,31 @@ namespace bias {
     };
 
 #endif
+
+#ifdef WITH_ARENA
+
+    // Arena SDK (LUCID) specific methods
+    // ------------------------------------------------------------------------
+    Guid Guid::fromSerialNumber_arena(std::string serialNumber)
+    {
+        Guid guid;
+        guid.guidDevicePtr_ = std::make_shared<GuidDevice_arena>(serialNumber);
+        return guid;
+    }
+
+    std::string Guid::getValue_arena()
+    {
+        std::string rval;
+        if ( getCameraLib() == CAMERA_LIB_ARENA )
+        {
+            GuidDevicePtr_arena tempPtr;
+            tempPtr = std::dynamic_pointer_cast<GuidDevice_arena>(guidDevicePtr_);
+            rval = tempPtr -> getValue();
+        }
+        return rval;
+    }
+
+#endif
     
     // Guid comparison operator
     // ------------------------------------------------------------------------

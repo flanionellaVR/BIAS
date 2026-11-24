@@ -129,8 +129,8 @@ namespace bias
     // Debug files
     const QString DEBUG_DUMP_CAMERA_PROPS_FILE_NAME("bias_camera_props_dump.txt");
 
-    // Definition of CameraWindow::spinnakerVersionString (declared in camera_window.hpp)
-    QString CameraWindow::spinnakerVersionString = QString("N/A");
+    // Definition of CameraWindow::cameraSdkVersionString (declared in camera_window.hpp)
+    QString CameraWindow::cameraSdkVersionString = QString("Camera SDK: N/A");
 
     // Public methods
     // ----------------------------------------------------------------------------------
@@ -2573,8 +2573,8 @@ namespace bias
         msgText += BIAS_VERSION;
         msgText += "\nOpenCV version ";
         msgText += CV_VERSION;
-        msgText += "\nSpinnaker version ";
-        msgText += spinnakerVersionString;
+        msgText += "\n";
+        msgText += cameraSdkVersionString;
         QMessageBox::information(this, msgTitle, msgText);
     }
 

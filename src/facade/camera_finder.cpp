@@ -4,6 +4,9 @@
 #include "camera.hpp"
 #include <iostream>
 #include <sstream>
+#ifdef WITH_ARENA
+#include "utils_arena.hpp"
+#endif
 
 namespace bias {
 
@@ -12,6 +15,7 @@ namespace bias {
         createQueryContext_fc2();
         createQueryContext_dc1394();
         createQueryContext_spin();
+        createQueryContext_arena();
         update();
     };
 
@@ -20,6 +24,7 @@ namespace bias {
         destroyQueryContext_fc2();
         destroyQueryContext_dc1394();
         destroyQueryContext_spin();
+        destroyQueryContext_arena();
     };
 
     void CameraFinder::update() 
@@ -28,6 +33,7 @@ namespace bias {
         update_fc2();
         update_dc1394();
         update_spin();
+        update_arena();
     }
 
     void CameraFinder::printGuid() 
@@ -424,5 +430,74 @@ namespace bias {
     }
 
 #endif
+
+#ifdef WITH_ARENA
+
+    // Arena SDK (LUCID) specific features
+    // ------------------------------------------------------------------------
+
+    void CameraFinder::createQueryContext_arena()
+    {
+        // Hold a reference to the shared Arena system for the lifetime of the
+        // finder so that it isn't opened and closed for every update.
+        acquireSystem_arena();
+        haveQueryContext_arena_ = true;
+    }
+
+
+    void CameraFinder::destroyQueryContext_arena()
+    {
+        if (haveQueryContext_arena_)
+        {
+            haveQueryContext_arena_ = false;
+            releaseSystem_arena();
+        }
+    }
+
+
+    void CameraFinder::update_arena()
+    {
+        std::vector<std::string> serialVec = findCameraSerials_arena();
+        for (auto &serial : serialVec)
+        {
+            guidSet_.insert(Guid::fromSerialNumber_arena(serial));
+        }
+    }
+
+
+    std::string CameraFinder::getArenaVersionString()
+    {
+        return getVersionString_arena();
+    }
+
+#else
+
+    // Dummy methods for when the Arena SDK is not included
+    // ------------------------------------------------------------------------
+
+    void CameraFinder::createQueryContext_arena() {}
+    void CameraFinder::destroyQueryContext_arena() {}
+    void CameraFinder::update_arena() {}
+
+    std::string CameraFinder::getArenaVersionString()
+    {
+        return std::string("N/A");
+    }
+
+#endif
+
+
+    std::string CameraFinder::getCameraSdkVersionString()
+    {
+        std::stringstream ssVersion;
+#if defined(WITH_SPIN)
+        ssVersion << "Spinnaker version " << getSpinnakerVersionString();
+#elif defined(WITH_ARENA)
+        ssVersion << "Arena SDK version " << getArenaVersionString();
+#else
+        ssVersion << "Camera SDK: none";
+#endif
+        return ssVersion.str();
+    }
 
 } // namespace bias
