@@ -365,6 +365,81 @@ Notes:
   headless OpenCV may lack. The former `fly_sorter` demo and its `with_demos`
   option were removed (#35), so there is no demo flag to turn off for CI.
 
+### Arena SDK build (LUCID cameras)
+
+BIAS can be built for LUCID Vision Labs cameras, using the Arena SDK, instead of
+for FLIR cameras with Spinnaker. The camera SDK is chosen at configure time and a
+build contains one of the two: switching `with_spin` and `with_arena` on together
+is a configure error. The video backend can stay on in either build.
+
+Requirements: the Arena SDK installed in its default location
+(`C:\Program Files\Lucid Vision Labs\Arena SDK`; pass `-DArena_ROOT_DIR=...`
+otherwise). Developed and tested with Arena SDK 1.0.85.12 and an Atlas
+ATV204S-M (monochrome, GigE Vision).
+
+```powershell
+cmake -S . -B build-arena `
+    -G "Visual Studio 17 2022" `
+    -A x64 `
+    -DOpenCV_DIR=C:\Code\opencv4\build `
+    -DCMAKE_PREFIX_PATH=C:\Qt\5.15.2\msvc2019_64 `
+    -Dwith_spin=OFF `
+    -Dwith_arena=ON `
+    -Dwith_fc2=OFF `
+    -Dwith_dc1394=OFF `
+    -Dwith_video_backend=ON `
+    -Dwith_qt_gui=ON `
+    -Dwith_tests=ON
+cmake --build build-arena --config Release
+```
+
+Notes:
+
+- The Arena runtime DLLs are not copied next to `test_gui.exe`. The Arena SDK
+  installer puts its `x64Release` folder on the system `PATH` and that is where
+  they are loaded from, so the SDK has to be installed on the machine BIAS
+  runs on. The OpenCV DLLs still have to be next to the exe or on the `PATH`.
+- GigE cameras: the first time a newly built `test_gui.exe` (or
+  `test_arena.exe`) runs, Windows Firewall asks whether to allow it network
+  access. Allow it, otherwise the image stream from the camera can be blocked.
+  The rule is tied to the path of the exe.
+- Close ArenaView (and any other program using the camera) first - only one
+  program can control the camera at a time.
+- The camera is identified by its serial number, which is the `guid` in the
+  BIAS configuration file.
+- On connect BIAS switches automatic exposure and automatic gain off, selects
+  the internal trigger and enables the frame rate control, as it does for
+  Spinnaker cameras.
+- The external trigger uses input `Line0` with the rising edge
+  (`CameraDevice_arena::ExternalTriggerSource`).
+- Image buffers are handed out oldest first (the Arena SDK default,
+  `OldestFirstOverwrite`). If BIAS can't keep up, the oldest waiting frames
+  are overwritten.
+- The Arena SDK writes a small `persist.json` file into the working directory.
+- `with_tests=ON` builds `test_arena.exe`, which checks the backend against a
+  connected camera (enumeration, capture, shutter, gain, region of interest,
+  frame rate, pixel formats, trigger, reconnect) and prints PASS/FAIL for each
+  check. It restores the settings it changes. `test_arena --nodes` also lists
+  all features of the camera with their values and ranges, 
+  `test_arena --save <dir>` saves a few frames as PNG files.
+
+### Running on a machine without the camera SDK
+
+With MSVC the camera SDK library (`SpinnakerC_v140.dll` or `ArenaC_v140.dll`)
+is linked delay loaded (`/DELAYLOAD`), so Windows does not need it to start
+`test_gui.exe`. Before the first call into the SDK, `CameraFinder` checks that
+the library can be loaded (`isRuntimeLibraryAvailable` in
+`src/facade/runtime_library.cpp`). If it can't, the console prints e.g.
+`Spinnaker runtime (SpinnakerC_v140.dll) not found - FLIR cameras are not available`,
+BIAS reports "No cameras found" and `test_gui.exe -i <video-file>` still works.
+
+The same applies if the SDK is installed but fails to start or to list its
+cameras: the error is printed to the console and BIAS starts without cameras.
+The About dialog shows "not installed" in place of the SDK version.
+
+This is set up for Windows/MSVC only. With other compilers the SDK has to be
+installed to start the program.
+
 ### Deploying the Qt runtime (windeployqt)
 
 This now runs automatically as a CMake post-build step for `test_gui` (see `WINDEPLOYQT_EXECUTABLE` in the top-level `CMakeLists.txt`), copying the matching Qt DLLs next to the exe so it can't pick up an incompatible Qt bundled with another SDK (e.g. Spinnaker's Qt 5.7) via `PATH`.

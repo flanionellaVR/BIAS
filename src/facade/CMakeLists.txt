@@ -11,6 +11,7 @@ set(
     exception.cpp
     property.cpp
     format7.cpp
+    runtime_library.cpp
     )
 
 add_library(bias_camera_facade ${bias_camera_facade_SOURCE})
@@ -27,6 +28,10 @@ endif()
 
 if (with_spin)
     set(bias_camera_facade_link_libs ${bias_camera_facade_link_libs} bias_backend_spin)
+endif()
+
+if (with_arena)
+    set(bias_camera_facade_link_libs ${bias_camera_facade_link_libs} bias_backend_arena)
 endif()
 
 if (with_video_backend)

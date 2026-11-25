@@ -61,9 +61,9 @@ namespace bias
 
         public:
 
-            // Spinnaker library version, queried once at startup (see main.cpp)
+            // Name and version of the camera SDK, queried once at startup (see main.cpp)
             // and shared by every CameraWindow instance for the About dialog.
-            static QString spinnakerVersionString;
+            static QString cameraSdkVersionString;
 
             CameraWindow(
                     Guid cameraGuid, 

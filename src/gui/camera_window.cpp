@@ -129,8 +129,8 @@ namespace bias
     // Debug files
     const QString DEBUG_DUMP_CAMERA_PROPS_FILE_NAME("bias_camera_props_dump.txt");
 
-    // Definition of CameraWindow::spinnakerVersionString (declared in camera_window.hpp)
-    QString CameraWindow::spinnakerVersionString = QString("N/A");
+    // Definition of CameraWindow::cameraSdkVersionString (declared in camera_window.hpp)
+    QString CameraWindow::cameraSdkVersionString = QString("Camera SDK: N/A");
 
     // Public methods
     // ----------------------------------------------------------------------------------
@@ -2573,8 +2573,8 @@ namespace bias
         msgText += BIAS_VERSION;
         msgText += "\nOpenCV version ";
         msgText += CV_VERSION;
-        msgText += "\nSpinnaker version ";
-        msgText += spinnakerVersionString;
+        msgText += "\n";
+        msgText += cameraSdkVersionString;
         QMessageBox::information(this, msgTitle, msgText);
     }
 
@@ -4509,6 +4509,12 @@ namespace bias
             return rtnStatus;
         }
 
+        // Sets all camera properties from the configuration, limiting the values to the
+        // ranges in the given property info map.
+        auto setCameraProperties = [&](PropertyInfoMap &propInfoMap) -> RtnStatus
+        {
+        RtnStatus rtnStatus;
+        rtnStatus.success = true;
         PropertyList::iterator propListIt;
         for (
                 propListIt = currCameraPropList.begin();
@@ -4517,7 +4523,7 @@ namespace bias
             )
         {
             Property prop = *propListIt;
-            PropertyInfo propInfo = cameraPropInfoMap[prop.type];
+            PropertyInfo propInfo = propInfoMap[prop.type];
             // -----------------------------------------------------------------------
             // TEMPORARY - ignore tigger mode (some funny happening with the property)
             // -----------------------------------------------------------------------
@@ -4553,6 +4559,14 @@ namespace bias
             }
 
         } // for ( propListIt ...
+        return rtnStatus;
+        }; // setCameraProperties
+
+        rtnStatus = setCameraProperties(cameraPropInfoMap);
+        if (!rtnStatus.success)
+        {
+            return rtnStatus;
+        }
 
         // Video Mode
         // ----------
@@ -4638,6 +4652,43 @@ namespace bias
         if (!rtnStatus.success)
         {
             return rtnStatus;
+        }
+
+        // Set the camera properties a second time. The allowed ranges of some properties
+        // depend on settings applied after the first pass above - the frame rate range
+        // on the Format7 region of interest, the shutter range on the frame rate - so
+        // values which were out of range then (and were limited to the old range) may
+        // be in range now. Without this a configuration has to be loaded twice to take
+        // full effect.
+        {
+            PropertyInfoMap updatedPropInfoMap;
+            bool haveUpdatedPropInfoMap = false;
+            for (int pass=0; pass<2; pass++)
+            {
+                haveUpdatedPropInfoMap = false;
+                if (cameraPtr_ -> tryLock(CAMERA_LOCK_TRY_DT))
+                {
+                    try
+                    {
+                        updatedPropInfoMap = cameraPtr_ -> getMapOfPropertyInfos();
+                        haveUpdatedPropInfoMap = true;
+                    }
+                    catch (RuntimeError &runtimeError)
+                    {
+                        std::cerr << "Unable to update camera property ranges: " << runtimeError.what() << std::endl;
+                    }
+                    cameraPtr_ -> releaseLock();
+                }
+                if (!haveUpdatedPropInfoMap)
+                {
+                    break;
+                }
+                rtnStatus = setCameraProperties(updatedPropInfoMap);
+                if (!rtnStatus.success)
+                {
+                    return rtnStatus;
+                }
+            }
         }
 
         // Trigger Type

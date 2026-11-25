@@ -39,4 +39,12 @@ namespace bias {
         throw RuntimeError(ERROR_NO_SPIN, ssError.str());
     }
 
+    void throw_ERROR_NO_ARENA(std::string prettyFunctionStr)
+    {
+        std::stringstream ssError;
+        ssError << prettyFunctionStr;
+        ssError << ": Arena SDK libary not present";
+        throw RuntimeError(ERROR_NO_ARENA, ssError.str());
+    }
+
 }

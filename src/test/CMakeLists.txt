@@ -20,6 +20,12 @@ if (with_spin)
     target_link_libraries(test_spin ${bias_ext_link_LIBS} bias_camera_facade)
 endif()
 
+if (with_arena)
+    project(bias_test_arena)
+    add_executable(test_arena test_arena.cpp)
+    target_link_libraries(test_arena ${bias_ext_link_LIBS} bias_camera_facade)
+endif()
+
 
 # Serial test
 # ---------------------------------------------------------------------------------------

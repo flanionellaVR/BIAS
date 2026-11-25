@@ -18,6 +18,7 @@ namespace bias {
     void throw_ERROR_NO_FC2(std::string prettyFunctionStr);
     void throw_ERROR_NO_DC1394(std::string prettyFunctionStr);
     void throw_ERROR_NO_SPIN(std::string prettyFunctionStr);
+    void throw_ERROR_NO_ARENA(std::string prettyFunctionStr);
 }
 
 

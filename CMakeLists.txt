@@ -18,6 +18,7 @@ option(with_qt_gui  "include image acquisition GUI"   ON)
 option(with_fc2     "include the FlyCapture2 backend" OFF)
 option(with_dc1394  "include the libdc1394 backend"   OFF)
 option(with_spin    "include the spin backend"   ON)
+option(with_arena   "include the Arena SDK (LUCID) backend" OFF)
 option(with_tests   "include tests" ON)
 option(with_video_backend     "include video backend" ON)
 # KB 20240215 - follows options for BIASJAABA - include tests
@@ -26,6 +27,7 @@ option(with_video_backend     "include video backend" ON)
 message(STATUS "Option: with_fc2     = ${with_fc2}")
 message(STATUS "Option: with_dc1394  = ${with_dc1394}")
 message(STATUS "Option: with_spin    = ${with_spin}")
+message(STATUS "Option: with_arena   = ${with_arena}")
 message(STATUS "Option: with_qt_gui  = ${with_qt_gui}")
 message(STATUS "Option: with_tests   = ${with_tests}") 
 message(STATUS "Option: with_video_backend     = ${with_video_backend}")
@@ -34,13 +36,22 @@ message(STATUS "Option: with_video_backend     = ${with_video_backend}")
 # configuration (no camera SDK needed, e.g. on CI runners): the facade compiles
 # through its #else stubs and test_gui must then be started with
 # -i <video-file> because there are no cameras to enumerate.
-if(NOT (with_fc2 OR with_dc1394 OR with_spin OR with_video_backend))
+if(NOT (with_fc2 OR with_dc1394 OR with_spin OR with_arena OR with_video_backend))
     message(FATAL_ERROR
         "there must be at least one backend: enable with_fc2, with_dc1394, "
-        "with_spin or with_video_backend")
+        "with_spin, with_arena or with_video_backend")
 endif()
 
-if(NOT (with_fc2 OR with_dc1394 OR with_spin))
+# The Spinnaker and Arena SDK backends can't be combined in one build: the camera
+# SDK is chosen at compile time, e.g. -Dwith_spin=OFF -Dwith_arena=ON for LUCID
+# cameras.
+if(with_spin AND with_arena)
+    message(FATAL_ERROR
+        "with_spin and with_arena can't both be enabled: choose one camera SDK "
+        "per build, e.g. -Dwith_spin=OFF -Dwith_arena=ON")
+endif()
+
+if(NOT (with_fc2 OR with_dc1394 OR with_spin OR with_arena))
     message(STATUS "No camera backend enabled: video-only build "
                    "(run test_gui with -i <video-file>)")
 endif()
@@ -67,6 +78,10 @@ endif()
 
 if(with_spin)
     find_package( Spinnaker MODULE REQUIRED )
+endif()
+
+if(with_arena)
+    find_package( Arena MODULE REQUIRED )
 endif()
 
 # Qt library
@@ -167,6 +182,57 @@ if(with_spin)
     add_definitions(-DWITH_SPIN)
 endif()
 
+if(with_arena)
+    add_definitions(-DWITH_ARENA)
+endif()
+
+# Camera SDK runtime libraries
+# -----------------------------------------------------------------------------
+# With MSVC the Spinnaker and Arena SDK libraries are linked "delay loaded": 
+# Windows does not need them to start the executable and only loads them when
+# BIAS first calls into them. Before that first call BIAS checks whether the 
+# library can be loaded (isRuntimeLibraryAvailable in src/facade) and otherwise
+# leaves that SDK alone. The executable therefore also starts on a machine
+# without the camera SDK, e.g. to play back video files.
+#
+# BIAS_SPIN_RUNTIME_LIB and BIAS_ARENA_RUNTIME_LIB are the file names of the 
+# libraries to check for, taken from the names of the import libraries.
+set(bias_delay_load_libs "")
+
+if(with_spin)
+    get_filename_component(bias_spin_runtime_name "${Spinnaker_LIBRARY}" NAME_WE)
+    if(WIN32)
+        set(bias_spin_runtime_lib "${bias_spin_runtime_name}.dll")
+    else()
+        get_filename_component(bias_spin_runtime_lib "${Spinnaker_LIBRARY}" NAME)
+    endif()
+    add_compile_definitions(BIAS_SPIN_RUNTIME_LIB="${bias_spin_runtime_lib}")
+    list(APPEND bias_delay_load_libs "${bias_spin_runtime_lib}")
+    message(STATUS "Spinnaker runtime library: ${bias_spin_runtime_lib}")
+endif()
+
+if(with_arena)
+    get_filename_component(bias_arena_runtime_name "${Arena_LIBRARY}" NAME_WE)
+    if(WIN32)
+        set(bias_arena_runtime_lib "${bias_arena_runtime_name}.dll")
+    else()
+        get_filename_component(bias_arena_runtime_lib "${Arena_LIBRARY}" NAME)
+    endif()
+    add_compile_definitions(BIAS_ARENA_RUNTIME_LIB="${bias_arena_runtime_lib}")
+    list(APPEND bias_delay_load_libs "${bias_arena_runtime_lib}")
+    message(STATUS "Arena SDK runtime library: ${bias_arena_runtime_lib}")
+endif()
+
+if(MSVC)
+    foreach(bias_delay_load_lib ${bias_delay_load_libs})
+        add_link_options("/DELAYLOAD:${bias_delay_load_lib}")
+    endforeach()
+    if(bias_delay_load_libs)
+        # LNK4199: a program which makes no calls into a delay loaded library
+        add_link_options("/IGNORE:4199")
+    endif()
+endif()
+
 if(with_dc1394)
     add_definitions(-DWITH_DC1394)
 endif()
@@ -209,6 +275,12 @@ if (with_spin)
     include_directories("./src/backend/spin")
 endif()
 
+if (with_arena)
+    # Note: the Arena SDK headers themselves are only added to the include path
+    # of the Arena backend (see src/backend/arena/CMakeLists.txt).
+    include_directories("./src/backend/arena")
+endif()
+
 if(with_dc1394)
     include_directories("./src/backend/dc1394")
     # Add custom libdc1394 
@@ -234,6 +306,10 @@ if (with_spin)
     set(bias_ext_link_LIBS ${bias_ext_link_LIBS} ${Spinnaker_LIBRARIES})
 endif()
 
+if (with_arena)
+    set(bias_ext_link_LIBS ${bias_ext_link_LIBS} ${Arena_LIBRARIES})
+endif()
+
 if(with_dc1394)
     if (WIN32)
         set(bias_ext_link_LIBS ${bias_ext_link_LIBS} dc1394 1394camera setupapi)
@@ -242,6 +318,11 @@ if(with_dc1394)
     endif()
 endif()
 set(bias_ext_link_LIBS ${bias_ext_link_LIBS})
+
+if(MSVC AND bias_delay_load_libs)
+    # Helper code for delay loaded libraries (see "Camera SDK runtime libraries")
+    set(bias_ext_link_LIBS ${bias_ext_link_LIBS} delayimp)
+endif()
 
 message(STATUS "${bias_ext_link_LIBS}")
 
@@ -264,6 +345,10 @@ endif()
 
 if(with_spin)
     add_subdirectory("src/backend/spin")
+endif()
+
+if(with_arena)
+    add_subdirectory("src/backend/arena")
 endif()
 
 if(with_video_backend)
