@@ -154,6 +154,41 @@ namespace bias {
             cameraInfo_ = nodeMapTLDevice_.cameraInfo();
             cameraInfo_.print();
 
+            // A camera whose last acquisition was never ended keeps its image format locked:
+            // PixelFormat, Width, Height and the offsets are read-only, so loading a configuration
+            // fails with "node is not writable" and "Unable to revert to previous configuration"
+            // (#6). That happens when BIAS crashed, was killed, or was ended by a Windows shutdown
+            // while capturing; the lock outlasts a restart of the computer, which usually leaves
+            // the USB port powered. One begin and end of an acquisition releases it, as Start and
+            // Stop do by hand.
+            EnumNode_spin pixelFormatLockNode = nodeMapCamera_.getNodeByName<EnumNode_spin>("PixelFormat");
+            if (pixelFormatLockNode.isAvailable() && !pixelFormatLockNode.isWritable())
+            {
+                std::cout << "Camera " << guid_.toString() << ": image format is locked by an "
+                          << "acquisition that was not ended, ending it" << std::endl;
+                spinError errBegin = spinCameraBeginAcquisition(hCamera_);
+                spinError errEnd = (errBegin == SPINNAKER_ERR_SUCCESS)
+                    ? spinCameraEndAcquisition(hCamera_) : SPINNAKER_ERR_SUCCESS;
+                if (errBegin != SPINNAKER_ERR_SUCCESS || errEnd != SPINNAKER_ERR_SUCCESS)
+                {
+                    std::cout << "Camera " << guid_.toString() << ": unable to end the "
+                              << "acquisition (begin error=" << errBegin << ", end error="
+                              << errEnd << "); Start and Stop the camera once before loading "
+                              << "a configuration" << std::endl;
+                }
+                else if (!pixelFormatLockNode.isWritable())
+                {
+                    std::cout << "Camera " << guid_.toString() << ": image format is still "
+                              << "locked; Start and Stop the camera once before loading a "
+                              << "configuration" << std::endl;
+                }
+                else
+                {
+                    std::cout << "Camera " << guid_.toString() << ": image format unlocked"
+                              << std::endl;
+                }
+            }
+
 
             // Default settings - may want to test for availability before setting.
             // ----------------------------------------------------------------------------------------------
