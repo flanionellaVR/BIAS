@@ -302,26 +302,26 @@ Open project in Visual Studio:
 - Open project `BIAS\build-vs\bias.sln`
 - Set configuration to Release | x64
 
-Copy the following DLLs next to test_gui.exe
-OpenCV — from opencv4\build\bin\Release:
+OpenCV's DLLs are copied next to test_gui.exe by the build, after windeployqt: every DLL
+of the OpenCV that BIAS was configured with (`OpenCV_DIR`), in its version, and its FFmpeg
+plugin `opencv_videoio_ffmpeg<version>_64.dll`, which video input (`-i`) needs. The build
+prints "Copying OpenCV <version>'s DLLs and its FFmpeg plugin next to test_gui.exe". Do not
+copy OpenCV DLLs by hand: their names carry the version (`opencv_core4120.dll` for 4.12.0),
+and DLLs of another version make test_gui.exe stop at startup with "The code execution
+cannot proceed because opencv_video4120.dll was not found" on a computer without OpenCV on
+the PATH (#17). This needs CMake 3.21 or newer; older versions print a warning instead.
 
-opencv_core490.dll
-opencv_imgproc490.dll
-opencv_imgcodecs490.dll
-opencv_videoio490.dll
-opencv_videoio_ffmpeg490_64.dll
-Spinnaker + GenICam — from C:\Program Files\FLIR Systems\Spinnaker\bin64\vs2015:
-
-SpinnakerC_v140.dll
-Spinnaker_v140.dll
-libiomp5md.dll
-GCBase_MD_VC140_v3_0.dll
-GenApi_MD_VC140_v3_0.dll
-Log_MD_VC140_v3_0.dll
-log4cpp_MD_VC140_v3_0.dll
-MathParser_MD_VC140_v3_0.dll
-NodeMapData_MD_VC140_v3_0.dll
-XMLParser_MD_VC140_v3_0.dll
+With the Spinnaker backend (`with_spin`), the build also copies the Spinnaker SDK's runtime
+DLLs next to test_gui.exe, from `bin64\vs2015` of the SDK it found
+(`C:\Program Files\FLIR Systems\Spinnaker\bin64\vs2015`): SpinnakerC_v140.dll,
+Spinnaker_v140.dll, the GenICam DLLs (GCBase, GenApi, Log, log4cpp, MathParser,
+NodeMapData, XmlParser, `_MD_VC140_v3_0`) and libiomp5md.dll. GenICam's license goes to
+`licenses\GenICam` next to them, because the GenICam runtime may only be redistributed with
+its notice; keep that folder in a release zip. The build prints "Copying Spinnaker's runtime
+DLLs next to test_gui.exe, and GenICam's license to licenses/GenICam". Configuring stops
+with an error if one of the DLLs is missing, e.g. with a Spinnaker version that names them
+differently. A computer with a camera still needs the Spinnaker SDK installed, for FLIR's
+USB3 driver.
 
 Program was crashing in the StampedePlugin, commented out. 
 
