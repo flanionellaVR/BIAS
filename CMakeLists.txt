@@ -186,6 +186,53 @@ if(with_arena)
     add_definitions(-DWITH_ARENA)
 endif()
 
+# Camera SDK runtime libraries
+# -----------------------------------------------------------------------------
+# With MSVC the Spinnaker and Arena SDK libraries are linked "delay loaded": 
+# Windows does not need them to start the executable and only loads them when
+# BIAS first calls into them. Before that first call BIAS checks whether the 
+# library can be loaded (isRuntimeLibraryAvailable in src/facade) and otherwise
+# leaves that SDK alone. The executable therefore also starts on a machine
+# without the camera SDK, e.g. to play back video files.
+#
+# BIAS_SPIN_RUNTIME_LIB and BIAS_ARENA_RUNTIME_LIB are the file names of the 
+# libraries to check for, taken from the names of the import libraries.
+set(bias_delay_load_libs "")
+
+if(with_spin)
+    get_filename_component(bias_spin_runtime_name "${Spinnaker_LIBRARY}" NAME_WE)
+    if(WIN32)
+        set(bias_spin_runtime_lib "${bias_spin_runtime_name}.dll")
+    else()
+        get_filename_component(bias_spin_runtime_lib "${Spinnaker_LIBRARY}" NAME)
+    endif()
+    add_compile_definitions(BIAS_SPIN_RUNTIME_LIB="${bias_spin_runtime_lib}")
+    list(APPEND bias_delay_load_libs "${bias_spin_runtime_lib}")
+    message(STATUS "Spinnaker runtime library: ${bias_spin_runtime_lib}")
+endif()
+
+if(with_arena)
+    get_filename_component(bias_arena_runtime_name "${Arena_LIBRARY}" NAME_WE)
+    if(WIN32)
+        set(bias_arena_runtime_lib "${bias_arena_runtime_name}.dll")
+    else()
+        get_filename_component(bias_arena_runtime_lib "${Arena_LIBRARY}" NAME)
+    endif()
+    add_compile_definitions(BIAS_ARENA_RUNTIME_LIB="${bias_arena_runtime_lib}")
+    list(APPEND bias_delay_load_libs "${bias_arena_runtime_lib}")
+    message(STATUS "Arena SDK runtime library: ${bias_arena_runtime_lib}")
+endif()
+
+if(MSVC)
+    foreach(bias_delay_load_lib ${bias_delay_load_libs})
+        add_link_options("/DELAYLOAD:${bias_delay_load_lib}")
+    endforeach()
+    if(bias_delay_load_libs)
+        # LNK4199: a program which makes no calls into a delay loaded library
+        add_link_options("/IGNORE:4199")
+    endif()
+endif()
+
 if(with_dc1394)
     add_definitions(-DWITH_DC1394)
 endif()
@@ -271,6 +318,11 @@ if(with_dc1394)
     endif()
 endif()
 set(bias_ext_link_LIBS ${bias_ext_link_LIBS})
+
+if(MSVC AND bias_delay_load_libs)
+    # Helper code for delay loaded libraries (see "Camera SDK runtime libraries")
+    set(bias_ext_link_LIBS ${bias_ext_link_LIBS} delayimp)
+endif()
 
 message(STATUS "${bias_ext_link_LIBS}")
 

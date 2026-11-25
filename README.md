@@ -423,6 +423,23 @@ Notes:
   all features of the camera with their values and ranges, 
   `test_arena --save <dir>` saves a few frames as PNG files.
 
+### Running on a machine without the camera SDK
+
+With MSVC the camera SDK library (`SpinnakerC_v140.dll` or `ArenaC_v140.dll`)
+is linked delay loaded (`/DELAYLOAD`), so Windows does not need it to start
+`test_gui.exe`. Before the first call into the SDK, `CameraFinder` checks that
+the library can be loaded (`isRuntimeLibraryAvailable` in
+`src/facade/runtime_library.cpp`). If it can't, the console prints e.g.
+`Spinnaker runtime (SpinnakerC_v140.dll) not found - FLIR cameras are not available`,
+BIAS reports "No cameras found" and `test_gui.exe -i <video-file>` still works.
+
+The same applies if the SDK is installed but fails to start or to list its
+cameras: the error is printed to the console and BIAS starts without cameras.
+The About dialog shows "not installed" in place of the SDK version.
+
+This is set up for Windows/MSVC only. With other compilers the SDK has to be
+installed to start the program.
+
 ### Deploying the Qt runtime (windeployqt)
 
 This now runs automatically as a CMake post-build step for `test_gui` (see `WINDEPLOYQT_EXECUTABLE` in the top-level `CMakeLists.txt`), copying the matching Qt DLLs next to the exe so it can't pick up an incompatible Qt bundled with another SDK (e.g. Spinnaker's Qt 5.7) via `PATH`.

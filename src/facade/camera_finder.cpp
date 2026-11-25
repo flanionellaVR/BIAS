@@ -4,6 +4,12 @@
 #include "camera.hpp"
 #include <iostream>
 #include <sstream>
+#include "runtime_library.hpp"
+#ifdef WITH_SPIN
+#include "SpinnakerC.h"
+#include "node_map_spin.hpp"
+#include "string_node_spin.hpp"
+#endif
 #ifdef WITH_ARENA
 #include "utils_arena.hpp"
 #endif
@@ -32,8 +38,24 @@ namespace bias {
         guidSet_.clear();
         update_fc2();
         update_dc1394();
-        update_spin();
-        update_arena();
+        // A failure of the camera SDK to list its cameras is logged and leaves
+        // the camera list empty: BIAS still starts, e.g. to play back video files.
+        try
+        {
+            update_spin();
+        }
+        catch (RuntimeError &runtimeError)
+        {
+            std::cerr << "Spinnaker camera enumeration failed: " << runtimeError.what() << std::endl;
+        }
+        try
+        {
+            update_arena();
+        }
+        catch (RuntimeError &runtimeError)
+        {
+            std::cerr << "Arena SDK camera enumeration failed: " << runtimeError.what() << std::endl;
+        }
     }
 
     void CameraFinder::printGuid() 
@@ -263,20 +285,38 @@ namespace bias {
     
     void CameraFinder::createQueryContext_spin()
     {
+        spinAvailable_ = false;
+        queryContext_spin_ = nullptr;
+
+        // The Spinnaker library is delay loaded - check that it is installed 
+        // before the first call into it (see runtime_library.hpp).
+        if (!isRuntimeLibraryAvailable(BIAS_SPIN_RUNTIME_LIB))
+        {
+            std::cout << "Spinnaker runtime (" << BIAS_SPIN_RUNTIME_LIB << ") not found - FLIR cameras are not available" << std::endl;
+            return;
+        }
+
         spinError error = SPINNAKER_ERR_SUCCESS;
-	    error = spinSystemGetInstance(&queryContext_spin_);
+        error = spinSystemGetInstance(&queryContext_spin_);
         if (error != SPINNAKER_ERR_SUCCESS) 
         {
-            std::stringstream ssError;
-            ssError << __FUNCTION__;
-            ssError << ": unable to create Spinnaker query context";
-            throw RuntimeError(ERROR_SPIN_CREATE_CONTEXT, ssError.str());
+            queryContext_spin_ = nullptr;
+            std::cerr << __FUNCTION__ << ": unable to create Spinnaker query context, error=" << error;
+            std::cerr << " - FLIR cameras are not available" << std::endl;
+            return;
         }
+        spinAvailable_ = true;
     }
+
 
 
     void CameraFinder::destroyQueryContext_spin()
     {
+        if (!spinAvailable_)
+        {
+            return;
+        }
+        spinAvailable_ = false;
         spinError error = SPINNAKER_ERR_SUCCESS;
 		error = spinSystemReleaseInstance(queryContext_spin_);
         if (error != SPINNAKER_ERR_SUCCESS) 
@@ -290,6 +330,11 @@ namespace bias {
 
     void CameraFinder::update_spin()
     {
+        if (!spinAvailable_)
+        {
+            return;
+        }
+
         // Get camera list and number of cameras
         spinCameraList hCameraList = NULL;
         size_t numCameras = 0;
@@ -401,6 +446,10 @@ namespace bias {
 
     std::string CameraFinder::getSpinnakerVersionString()
     {
+        if (!spinAvailable_)
+        {
+            return std::string("not installed");
+        }
         spinLibraryVersion version;
         spinError error = spinSystemGetLibraryVersion(queryContext_spin_, &version);
         if (error != SPINNAKER_ERR_SUCCESS)
@@ -440,8 +489,27 @@ namespace bias {
     {
         // Hold a reference to the shared Arena system for the lifetime of the
         // finder so that it isn't opened and closed for every update.
-        acquireSystem_arena();
+        arenaAvailable_ = false;
+
+        // The Arena library is delay loaded - check that it is installed before
+        // the first call into it (see runtime_library.hpp).
+        if (!isRuntimeLibraryAvailable(BIAS_ARENA_RUNTIME_LIB))
+        {
+            std::cout << "Arena SDK runtime (" << BIAS_ARENA_RUNTIME_LIB << ") not found - LUCID cameras are not available" << std::endl;
+            return;
+        }
+
+        try
+        {
+            acquireSystem_arena();
+        }
+        catch (RuntimeError &runtimeError)
+        {
+            std::cerr << runtimeError.what() << " - LUCID cameras are not available" << std::endl;
+            return;
+        }
         haveQueryContext_arena_ = true;
+        arenaAvailable_ = true;
     }
 
 
@@ -457,6 +525,11 @@ namespace bias {
 
     void CameraFinder::update_arena()
     {
+        if (!arenaAvailable_)
+        {
+            return;
+        }
+
         std::vector<std::string> serialVec = findCameraSerials_arena();
         for (auto &serial : serialVec)
         {
@@ -467,6 +540,10 @@ namespace bias {
 
     std::string CameraFinder::getArenaVersionString()
     {
+        if (!arenaAvailable_)
+        {
+            return std::string("not installed");
+        }
         return getVersionString_arena();
     }
 
@@ -498,6 +575,18 @@ namespace bias {
         ssVersion << "Camera SDK: none";
 #endif
         return ssVersion.str();
+    }
+
+
+    bool CameraFinder::isSpinnakerAvailable()
+    {
+        return spinAvailable_;
+    }
+
+
+    bool CameraFinder::isArenaAvailable()
+    {
+        return arenaAvailable_;
     }
 
 } // namespace bias

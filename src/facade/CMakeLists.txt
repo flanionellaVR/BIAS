@@ -11,6 +11,7 @@ set(
     exception.cpp
     property.cpp
     format7.cpp
+    runtime_library.cpp
     )
 
 add_library(bias_camera_facade ${bias_camera_facade_SOURCE})

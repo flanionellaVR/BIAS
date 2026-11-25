@@ -12,11 +12,6 @@
 #ifdef WITH_DC1394
 #include <dc1394/dc1394.h> 
 #endif
-#ifdef WITH_SPIN
-#include "SpinnakerC.h"
-#include "node_map_spin.hpp"
-#include "string_node_spin.hpp"
-#endif
 
 namespace bias {
 
@@ -45,8 +40,15 @@ namespace bias {
             // "Spinnaker version 2.6.0.160" - for display in the GUI.
             std::string getCameraSdkVersionString();
 
+            // True if the camera SDK is part of this build and its runtime library
+            // was found on this machine and could be started.
+            bool isSpinnakerAvailable();
+            bool isArenaAvailable();
+
         private:
             GuidSet guidSet_;
+            bool spinAvailable_ = false;
+            bool arenaAvailable_ = false;
             
             void createQueryContext_fc2();
             void destroyQueryContext_fc2();
@@ -76,7 +78,9 @@ namespace bias {
 #endif
 #ifdef WITH_SPIN
         private:
-            spinSystem queryContext_spin_ = nullptr;
+            // spinSystem handle. Kept as void* so that the Spinnaker headers are only
+            // needed in camera_finder.cpp (they clash with those of the Arena SDK).
+            void *queryContext_spin_ = nullptr;
 
 #endif
 #ifdef WITH_ARENA
