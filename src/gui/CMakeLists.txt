@@ -138,3 +138,82 @@ if(WIN32 AND WINDEPLOYQT_EXECUTABLE)
         )
 endif()
 
+# Copy the OpenCV DLLs next to test_gui.exe after each build, in the version it was linked
+# against, so the folder runs on a computer without OpenCV on the PATH and a release zip of
+# it carries the right OpenCV (flanionellaVR/BIAS#17: v0.76.0 was built against 4.12.0 and
+# shipped the DLLs of 4.9.0). $<TARGET_RUNTIME_DLLS> lists every DLL of the imported targets
+# test_gui links, directly or through the plugins: OpenCV's (and Qt's, which windeployqt
+# copies as well). OpenCV's videoio loads its FFmpeg backend only at run time, and only in
+# its own version (opencv_videoio_ffmpeg4120_64.dll for 4.12.0), so no link step knows it:
+# it is copied from next to opencv_core's DLL. Without it, BIAS cannot open a video (-i).
+if(WIN32)
+    set(_opencv_ffmpeg_dll
+        "opencv_videoio_ffmpeg${OpenCV_VERSION_MAJOR}${OpenCV_VERSION_MINOR}${OpenCV_VERSION_PATCH}_64.dll")
+    if(CMAKE_VERSION VERSION_LESS 3.21)
+        message(WARNING "CMake ${CMAKE_VERSION} cannot list the runtime DLLs of test_gui "
+                        "(TARGET_RUNTIME_DLLS needs 3.21): copy OpenCV's DLLs and "
+                        "${_opencv_ffmpeg_dll} next to test_gui.exe by hand.")
+    else()
+        add_custom_command(
+            TARGET test_gui POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    $<TARGET_RUNTIME_DLLS:test_gui>
+                    "$<TARGET_FILE_DIR:opencv_core>/${_opencv_ffmpeg_dll}"
+                    $<TARGET_FILE_DIR:test_gui>
+            COMMAND_EXPAND_LISTS
+            COMMENT "Copying OpenCV ${OpenCV_VERSION}'s DLLs and its FFmpeg plugin next to test_gui.exe"
+            )
+    endif()
+endif()
+
+# Copy the Spinnaker SDK's runtime DLLs next to test_gui.exe after each build, with the
+# GenICam license, whose runtime license allows redistributing the GenICam DLLs in binary
+# form if its notice comes with them. FindSpinnaker finds only the import library, so CMake
+# cannot list the DLLs itself: these are SpinnakerC_v140.dll and the DLLs it loads,
+# directly or through Spinnaker_v140.dll (Spinnaker 2.6). They are in bin64/vs2015 of the
+# SDK, next to the lib64/vs2015 the import library was found in; GenICam's license is in
+# its dependencies folder. A camera still needs FLIR's USB3 driver, which only the
+# Spinnaker installer installs.
+if(WIN32 AND with_spin)
+    get_filename_component(_spin_lib_dir "${Spinnaker_LIBRARY}" DIRECTORY)
+    get_filename_component(_spin_root "${_spin_lib_dir}/../.." ABSOLUTE)
+    get_filename_component(_spin_bin_dir "${_spin_lib_dir}/../../bin64/vs2015" ABSOLUTE)
+    set(_spin_dlls
+        SpinnakerC_v140.dll
+        Spinnaker_v140.dll
+        GCBase_MD_VC140_v3_0.dll
+        GenApi_MD_VC140_v3_0.dll
+        Log_MD_VC140_v3_0.dll
+        log4cpp_MD_VC140_v3_0.dll
+        MathParser_MD_VC140_v3_0.dll
+        NodeMapData_MD_VC140_v3_0.dll
+        XmlParser_MD_VC140_v3_0.dll
+        libiomp5md.dll
+        )
+    set(_spin_dll_paths)
+    foreach(_dll IN LISTS _spin_dlls)
+        if(NOT EXISTS "${_spin_bin_dir}/${_dll}")
+            message(FATAL_ERROR "Spinnaker runtime DLL ${_dll} not found in ${_spin_bin_dir}, "
+                                "next to the import library ${Spinnaker_LIBRARY}. A Spinnaker "
+                                "version other than 2.6 may name its DLLs differently: update "
+                                "the list in src/gui/CMakeLists.txt.")
+        endif()
+        list(APPEND _spin_dll_paths "${_spin_bin_dir}/${_dll}")
+    endforeach()
+    set(_genicam_dir "${_spin_root}/dependencies/GenICam_v3_0")
+    if(NOT EXISTS "${_genicam_dir}/License_ReadMe.txt")
+        message(FATAL_ERROR "GenICam license ${_genicam_dir}/License_ReadMe.txt not found: "
+                            "the GenICam DLLs may only be redistributed with it.")
+    endif()
+    add_custom_command(
+        TARGET test_gui POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${_spin_dll_paths} $<TARGET_FILE_DIR:test_gui>
+        COMMAND "${CMAKE_COMMAND}" -E make_directory $<TARGET_FILE_DIR:test_gui>/licenses/GenICam
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_genicam_dir}/License_ReadMe.txt"
+                $<TARGET_FILE_DIR:test_gui>/licenses/GenICam
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_genicam_dir}/licenses"
+                $<TARGET_FILE_DIR:test_gui>/licenses/GenICam
+        COMMENT "Copying Spinnaker's runtime DLLs next to test_gui.exe, and GenICam's license to licenses/GenICam"
+        )
+endif()
+
